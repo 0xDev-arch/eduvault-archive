@@ -11,11 +11,14 @@ import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { cacheGet, cacheSet, catalogCacheKey } from "@/lib/cache/redis";
 
+import { sanitizeMaterialPublic } from "@/lib/storage/protectedStorage";
+
 export const runtime = "nodejs";
 
 function sanitizeMaterial(doc) {
   if (!doc) return doc;
-  const { storageKey, fileUrl, metadataUrl, ...safe } = doc;
+  const publicSafe = sanitizeMaterialPublic(doc);
+  const { storageKey, fileUrl, metadataUrl, ...safe } = publicSafe;
   const averageScore = Number(safe.averageScore ?? safe.rating ?? 0) || 0;
   const feedbackCount = Number(safe.feedbackCount ?? safe.reviewsCount ?? 0) || 0;
 
