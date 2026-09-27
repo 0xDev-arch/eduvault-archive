@@ -8,6 +8,7 @@ import { getDb } from "@/lib/mongodb";
 import { auditLog } from "@/lib/api/audit";
 import { generateAccessToken, generateRefreshToken, storeRefreshToken } from "@/lib/auth/tokenService";
 import { errorResponse } from "@/lib/utils/errorResponse";
+import { buildWalletLookupQuery, normalizeProfileForSession } from "@/lib/migrations/profileMigration";
 
 export async function POST(request) {
   return withApiHardening(
@@ -59,12 +60,8 @@ export async function POST(request) {
 
         const db = await getDb();
         const users = db.collection("users");
-        const user = await users.findOne({
-          $or: [
-            { walletAddress: address },
-            { walletAddressLower: address.toLowerCase() },
-          ],
-        });
+        const rawUser = await users.findOne(buildWalletLookupQuery(address));
+        const user = rawUser ? normalizeProfileForSession(rawUser) : null;
 
         if (!process.env.JWT_SECRET) {
           return errorResponse({ status: 500, detail: "Server configuration error", instance: "/api/auth/verify" });
