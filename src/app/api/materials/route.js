@@ -11,6 +11,7 @@ import { buildMaterialHistoryEntry, EDITABLE_MATERIAL_FIELDS } from "@/lib/backe
 import { enqueueMaterialSearchProjection } from "@/lib/backend/materialSearchProjection";
 import { evaluateAndQueueListing } from "@/lib/backend/manipulationScoring";
 import { invalidateCatalogCache } from "@/lib/cache/redis";
+import { appendCriticalMutation } from "@/lib/backend/auditLedger";
 
 export const runtime = "nodejs";
 
@@ -139,6 +140,15 @@ export async function PUT(request) {
           return NextResponse.json({ error: "Forbidden: not the material owner" }, { status: 403 });
         }
 
+        // Avoid incrementing the material version (and creating misleading
+        // evidence) when a client retries the values already persisted.
+        const hasChange = Object.keys(updates).some(
+          (key) => JSON.stringify(existing[key] ?? null) !== JSON.stringify(updates[key] ?? null),
+        );
+        if (!hasChange) {
+          return NextResponse.json({ error: "No material values changed" }, { status: 409 });
+        }
+
         const now = new Date();
         const nextVersion = (existing.version || 1) + 1;
         const updateDoc = { ...updates, updatedAt: now, updatedBy: userAddress, version: nextVersion, searchVersion: nextVersion };
@@ -168,6 +178,20 @@ export async function PUT(request) {
         });
 
         await db.collection("material_history").insertOne(historyEntry);
+        await appendCriticalMutation({
+          db,
+          operationId: `material.update:${materialId}:${nextVersion}`,
+          actor: userAddress,
+          actorContext: { userId: user.sub || null },
+          action: "material.access_terms_updated",
+          target: { type: "material", id: materialId },
+          reason: changeReason || "Creator material update",
+          // `updates` is validated and limited to editable metadata, so no
+          // storage credentials or private file locations enter the ledger.
+          before: Object.fromEntries(Object.keys(updates).map((key) => [key, existing[key] ?? null])),
+          after: updates,
+          intent: { source: "creator", fields: Object.keys(updates).sort() },
+        });
         await invalidateCatalogCache();
 
         auditLog({ event: "material_updated", route: "materials", method: "PUT", status: 200, actor: user.sub, materialId });
