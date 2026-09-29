@@ -1,0 +1,30 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "feat/issue-818-eduvault-implement-signed-webhook-verification",
+    "feat/issue-818-eduvault-implement-signed-webhook-verification-r2",
+    "feat/issue-820-eduvault-add-strict-input-normalization-and",
+    "feat/issue-821-eduvault-implement-permission-aware-search",
+    "feat/issue-827-eduvault-implement-signed-activity-receipts-for",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "feat/issue-818-eduvault-implement-signed-webhook-verification": "main",
+    "feat/issue-818-eduvault-implement-signed-webhook-verification-r2": "feat/issue-818-eduvault-implement-signed-webhook-verification",
+    "feat/issue-820-eduvault-add-strict-input-normalization-and": "main",
+    "feat/issue-821-eduvault-implement-permission-aware-search": "main",
+    "feat/issue-827-eduvault-implement-signed-activity-receipts-for": "main",
+    "main": null,
+    "origin": "main"
+  },
+  "order": [
+    "main",
+    "feat/issue-818-eduvault-implement-signed-webhook-verification",
+    "feat/issue-820-eduvault-add-strict-input-normalization-and",
+    "feat/issue-821-eduvault-implement-permission-aware-search",
+    "feat/issue-827-eduvault-implement-signed-activity-receipts-for",
+    "origin",
+    "feat/issue-818-eduvault-implement-signed-webhook-verification-r2"
+  ]
+}
