@@ -10,6 +10,11 @@ export const dynamic = 'force-dynamic';
  *
  * Operational health and unresolved exceptions report endpoint.
  * Protected by an admin session or the least-privilege operations service token.
+ *
+ * Query parameters:
+ *   - category: optional filter to a single health category
+ *   -includeResolved: optional boolean (default false) to include resolved records
+ *   -includeDetails: optional boolean (default false) to include redacted evidence
  */
 export async function GET(request) {
   try {
@@ -18,8 +23,17 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Forbidden: operations access required' }, { status: authorization.status });
     }
 
+    const { searchParams } = new URL(request.url);
+    const category = searchParams.get('category') || undefined;
+    const includeResolved = searchParams.get('includeResolved') === 'true';
+    const includeDetails = searchParams.get('includeDetails') === 'true';
+
     const db = await getDb();
-    const health = await getOperationalHealth(db);
+    const health = await getOperationalHealth(db, {
+      category,
+      includeResolved,
+      includeDetails,
+    });
 
     return NextResponse.json({
       ok: true,
