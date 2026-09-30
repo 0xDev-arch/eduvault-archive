@@ -18,7 +18,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "echo 'Typecheck not applicable yet (JS codebase without checkJs)'",
+    "typecheck": "echo 'Typecheck not applicable yet (JS codebase without checkJS)'",
     "test": "vitest",
     "test:frontend": "vitest run",
     "test:all": "npm run test:contracts && npm run test:backend && npm run test:frontend",
