@@ -39,6 +39,8 @@ export const COLLECTIONS = {
   checkoutQuotes: "checkout_quotes",
   storageQuotaHistory: "storage_quota_history",
   notifications: "notifications",
+  materialAnalyticsAggregates: "material_analytics_aggregates",
+  materialAnalyticsDedupe: "material_analytics_dedupe",
 };
 
 export const REQUIRED_INDEXES = {
@@ -112,6 +114,15 @@ export const REQUIRED_INDEXES = {
   storage_quota_history: [
     { keys: { provider: 1, checkedAt: -1 } },
     { keys: { checkedAt: 1 }, options: { expireAfterSeconds: 31536000 } },
+  ],
+  // Privacy-preserving analytics: aggregate counters are queryable by a
+  // creator's materials; opaque dedupe keys expire after one short window.
+  material_analytics_aggregates: [
+    { keys: { materialId: 1, day: 1, eventType: 1, source: 1, classification: 1, filterReason: 1 }, options: { unique: true, name: "analytics_daily_bucket_unique" } },
+    { keys: { day: -1, materialId: 1 }, options: { name: "analytics_daily_material_idx" } },
+  ],
+  material_analytics_dedupe: [
+    { keys: { expiresAt: 1 }, options: { expireAfterSeconds: 0, name: "analytics_dedupe_expiry" } },
   ],
   payouts: [
     // #293: monthly-statements.mjs scans all payouts in a date window across
