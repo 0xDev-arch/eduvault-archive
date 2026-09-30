@@ -13,7 +13,7 @@
  *   purchases         – 3 completed purchases (one per buyer)
  *   entitlement_cache – 3 active entitlement entries derived from purchases
  *   refunds           – 2 refund records (one pending, one completed)
- *   failures          – 6 failure records (varied categories/severities/ages)
+ *   analytics_events  – deterministic usage/failure/recovery/domain events
  *
  * Usage:
  *   node scripts/seed-local-fixtures.mjs
@@ -22,8 +22,7 @@
  *   MONGODB_URI  – defaults to mongodb://localhost:27017/eduvault
  *   MONGODB_DB   – defaults to eduvault
  *   FORCE_RESEED – set to "true" to drop and recreate all fixture documents
- *
- * The `failures` collection feeds scripts/health-report.mjs (operational health report).
+ *   SEED_ANCHOR  – ISO date used as "now" for deterministic trend fixtures
  */
 
 import { MongoClient, ObjectId } from 'mongodb';
@@ -33,6 +32,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 const MONGODB_URI = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/eduvault';
 const MONGODB_DB  = process.env.MONGODB_DB  ?? 'eduvault';
 const FORCE       = process.env.FORCE_RESEED === 'true';
+const SEED_ANCHOR = process.env.SEED_ANCHOR ?? '2024-06-01T00:00:00.000Z';
 
 /**
  * Produce a deterministic ObjectId from an ASCII string seed.
@@ -49,8 +49,9 @@ function deterministicId(seed) {
   return new ObjectId(hex);
 }
 
-const NOW = new Date();
+const NOW = new Date(SEED_ANCHOR);
 const DAY = 86_400_000;
+const HOUR = 3_600_000;
 
 function daysAgo(n) { return new Date(NOW - n * DAY); }
 function daysFromNow(n) { return new Date(NOW.getTime() + n * DAY); }
@@ -58,6 +59,7 @@ function daysFromNow(n) { return new Date(NOW.getTime() + n * DAY); }
 function log(msg)  { console.log(`  [seed] ${msg}`); }
 function ok(msg)   { console.log(`  [seed] ✓ ${msg}`); }
 function warn(msg) { console.warn(`  [seed] ⚠ ${msg}`); }
+function hoursAgo(n) { return new Date(NOW.getTime() - n * HOUR); }
 
 // ── fixture definitions ───────────────────────────────────────────────────────
 
@@ -352,116 +354,123 @@ const REFUNDS = [
 ];
 
 /**
- * Failure records powering the operational health report.
- *
- * Categories (aligned with scripts/health-report.mjs):
- *   storage_sync    – IPFS/storage upload or pinning failures
- *   entitlement     – entitlement cache reconciliation failures
- *   payment         – on-chain payment / purchase confirmation failures
- *   refund          – refund workflow failures
- *   marketplace     – listing / marketplace metadata failures
- *
- * Severity levels:
- *   critical – user-impacting, blocks access or funds
- *   high     – user-impacting, degrades experience
- *   medium   – operational, no direct user impact
- *   low      – informational / cleanup
- *
- * `resolvedAt: null` marks an unresolved failure. `redacted` flags records
- * whose sensitive details (wallet, email, tx payload) must be masked in reports.
+ * Deterministic analytics events used to exercise historical trend
+ * aggregation. Each event carries:
+ *   - type:     usage | failure | recovery | domain
+ *   - metric:   stable metric key the aggregator groups by
+ *   - window:   coarse bucket hint (day) for deterministic rollups
+ *   - actor:    wallet address (redacted in exports, kept for local dev)
+ *   - subject:  materialId or purchaseId the event pertains to
+ *   - value:    numeric contribution (counts, durations, amounts)
+ *   - private:  true when the event must be redacted in exported reports
  */
-const FAILURES = [
-  {
-    _id:          deterministicId('failure:storage:carol-zk-draft'),
-    category:     'storage_sync',
-    severity:     'high',
-    status:       'unresolved',
-    materialId:   MATERIALS[5].materialId,
-    userAddress:  WALLETS.carol,
-    message:      'IPFS pinning timed out after 3 retries',
-    details:      { storageKey: MATERIALS[5].storageKey, attempts: 3, lastError: 'ETIMEDOUT' },
-    redacted:     false,
-    occurredAt:   daysAgo(1),
-    resolvedAt:   null,
-    createdAt:    daysAgo(1),
-    updatedAt:    daysAgo(1),
-  },
-  {
-    _id:          deterministicId('failure:entitlement:eve-bob-defi'),
-    category:     'entitlement',
-    severity:     'critical',
-    status:       'unresolved',
-    materialId:   MATERIALS[2].materialId,
-    userAddress:  WALLETS.eve,
-    message:      'Entitlement cache missing for confirmed purchase',
-    details:      { purchaseId: PURCHASE_IDS.eve, expectedActive: true },
-    redacted:     true,
-    occurredAt:   daysAgo(2),
-    resolvedAt:   null,
-    createdAt:    daysAgo(2),
-    updatedAt:    daysAgo(2),
-  },
-  {
-    _id:          deterministicId('failure:payment:frank-carol-security'),
-    category:     'payment',
-    severity:     'critical',
-    status:       'unresolved',
-    materialId:   MATERIALS[4].materialId,
-    userAddress:  WALLETS.frank,
-    message:      'Purchase confirmation not observed on-chain within SLA',
-    details:      { purchaseId: PURCHASE_IDS.frank, slaMinutes: 15 },
-    redacted:     true,
-    occurredAt:   daysAgo(3),
-    resolvedAt:   null,
-    createdAt:    daysAgo(3),
-    updatedAt:    daysAgo(3),
-  },
-  {
-    _id:          deterministicId('failure:refund:eve-bob-defi'),
-    category:     'refund',
-    severity:     'high',
-    status:       'unresolved',
-    materialId:   MATERIALS[2].materialId,
-    userAddress:  WALLETS.eve,
-    message:      'Refund stuck in pending state beyond expected window',
-    details:      { purchaseId: PURCHASE_IDS.eve, pendingDays: 2 },
-    redacted:     true,
-    occurredAt:   daysAgo(2),
-    resolvedAt:   null,
-    createdAt:    daysAgo(2),
-    updatedAt:    daysAgo(2),
-  },
-  {
-    _id:          deterministicId('failure:marketplace:bob-xlm-payments'),
-    category:     'marketplace',
-    severity:     'medium',
-    status:       'unresolved',
-    materialId:   MATERIALS[3].materialId,
-    userAddress:  WALLETS.bob,
-    message:      'Listing metadata missing shortSummary for unlisted material',
-    details:      { materialId: MATERIALS[3].materialId, field: 'shortSummary' },
-    redacted:     false,
-    occurredAt:   daysAgo(6),
-    resolvedAt:   null,
-    createdAt:    daysAgo(6),
-    updatedAt:    daysAgo(6),
-  },
-  {
-    _id:          deterministicId('failure:storage:alice-intro-resolved'),
-    category:     'storage_sync',
-    severity:     'low',
-    status:       'resolved',
-    materialId:   MATERIALS[0].materialId,
-    userAddress:  WALLETS.alice,
-    message:      'Transient IPFS gateway 502 during initial upload',
-    details:      { storageKey: MATERIALS[0].storageKey, attempts: 1 },
-    redacted:     false,
-    occurredAt:   daysAgo(30),
-    resolvedAt:   daysAgo(29),
-    createdAt:    daysAgo(30),
-    updatedAt:    daysAgo(29),
-  },
+const EVENT_TYPES = ['usage', 'failure', 'recovery', 'domain'];
+
+function makeEvent(key, { type, metric, daysBack, actor, subject, value, private: isPrivate = false }) {
+  const occurredAt = daysAgo(daysBack);
+  return {
+    _id:        deterministicId(`event:${key}`),
+    type,
+    metric,
+    actor,
+    subject,
+    value,
+    private:    isPrivate,
+    occurredAt,
+    window:     occurredAt.toISOString().slice(0, 10),
+    createdAt:  occurredAt,
+    updatedAt:  occurredAt,
+  };
+}
+
+const ANALYTICS_EVENTS = [
+  // ── usage: material views across the last 30 days ─────────────────────────
+  makeEvent('usage:alice-intro:d-1',  { type: 'usage', metric: 'material.view', daysBack: 1,  actor: WALLETS.dave,  subject: MATERIALS[0].materialId, value: 12 }),
+  makeEvent('usage:alice-intro:d-5',  { type: 'usage', metric: 'material.view', daysBack: 5,  actor: WALLETS.eve,   subject: MATERIALS[0].materialId, value: 8 }),
+  makeEvent('usage:alice-intro:d-12', { type: 'usage', metric: 'material.view', daysBack: 12, actor: WALLETS.frank, subject: MATERIALS[0].materialId, value: 5 }),
+  makeEvent('usage:bob-defi:d-2',     { type: 'usage', metric: 'material.view', daysBack: 2,  actor: WALLETS.dave,  subject: MATERIALS[2].materialId, value: 9 }),
+  makeEvent('usage:bob-defi:d-9',     { type: 'usage', metric: 'material.view', daysBack: 9,  actor: WALLETS.eve,   subject: MATERIALS[2].materialId, value: 4 }),
+  makeEvent('usage:carol-sec:d-3',    { type: 'usage', metric: 'material.view', daysBack: 3,  actor: WALLETS.frank, subject: MATERIALS[4].materialId, value: 7 }),
+  makeEvent('usage:carol-sec:d-20',   { type: 'usage', metric: 'material.view', daysBack: 20, actor: WALLETS.dave,  subject: MATERIALS[4].materialId, value: 3 }),
+
+  // ── usage: storage sync operations ────────────────────────────────────────
+  makeEvent('usage:sync:alice:d-1',   { type: 'usage', metric: 'storage.sync',   daysBack: 1,  actor: WALLETS.alice, subject: MATERIALS[0].materialId, value: 1 }),
+  makeEvent('usage:sync:bob:d-4',     { type: 'usage', metric: 'storage.sync',   daysBack: 4,  actor: WALLETS.bob,   subject: MATERIALS[2].materialId, value: 1 }),
+  makeEvent('usage:sync:carol:d-10',  { type: 'usage', metric: 'storage.sync',   daysBack: 10, actor: WALLETS.carol, subject: MATERIALS[4].materialId, value: 1 }),
+
+  // ── failure: storage / entitlement failures ───────────────────────────────
+  makeEvent('failure:sync:carol:d-0', { type: 'failure', metric: 'storage.sync.failed', daysBack: 0,  actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 1 }),
+  makeEvent('failure:sync:carol:d-6', { type: 'failure', metric: 'storage.sync.failed', daysBack: 6,  actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 1 }),
+  makeEvent('failure:ent:d-3',        { type: 'failure', metric: 'entitlement.miss',    daysBack: 3,  actor: WALLETS.eve,   subject: MATERIALS[2].materialId, value: 1 }),
+  makeEvent('failure:ent:d-14',       { type: 'failure', metric: 'entitlement.miss',    daysBack: 14, actor: WALLETS.dave,  subject: MATERIALS[0].materialId, value: 1 }),
+
+  // ── recovery: retries and refund completions ──────────────────────────────
+  makeEvent('recovery:sync:carol:d-0', { type: 'recovery', metric: 'storage.sync.retried', daysBack: 0, actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 1 }),
+  makeEvent('recovery:sync:carol:d-6', { type: 'recovery', metric: 'storage.sync.retried', daysBack: 6, actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 1 }),
+  makeEvent('recovery:refund:d-4',     { type: 'recovery', metric: 'refund.completed',     daysBack: 4, actor: WALLETS.dave,  subject: MATERIALS[0].materialId, value: 9_500_000 }),
+
+  // ── domain: purchases, refunds, marketplace activity ──────────────────────
+  makeEvent('domain:purchase:dave:d-20',  { type: 'domain', metric: 'purchase.confirmed', daysBack: 20, actor: WALLETS.dave,  subject: MATERIALS[0].materialId, value: 10_000_000 }),
+  makeEvent('domain:purchase:eve:d-15',   { type: 'domain', metric: 'purchase.confirmed', daysBack: 15, actor: WALLETS.eve,   subject: MATERIALS[2].materialId, value: 20_000_000 }),
+  makeEvent('domain:purchase:frank:d-10', { type: 'domain', metric: 'purchase.confirmed', daysBack: 10, actor: WALLETS.frank, subject: MATERIALS[4].materialId, value: 30_000_000 }),
+  makeEvent('domain:refund:eve:d-2',      { type: 'domain', metric: 'refund.requested',   daysBack: 2,  actor: WALLETS.eve,   subject: MATERIALS[2].materialId, value: 19_000_000 }),
+  makeEvent('domain:refund:dave:d-5',     { type: 'domain', metric: 'refund.requested',   daysBack: 5,  actor: WALLETS.dave,  subject: MATERIALS[0].materialId, value: 9_500_000 }),
+
+  // ── private: must be redacted in exported reports ─────────────────────────
+  makeEvent('private:carol-draft:view:d-1', { type: 'usage', metric: 'material.view', daysBack: 1, actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 2, private: true }),
+  makeEvent('private:carol-draft:edit:d-0', { type: 'usage', metric: 'material.edit', daysBack: 0, actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 1, private: true }),
 ];
+
+/**
+ * Trend aggregation windows. Each window defines a deterministic bucket
+ * size (in days) and the number of buckets to emit, ending at NOW.
+ */
+const TREND_WINDOWS = [
+  { name: 'daily',   bucketDays: 1,  buckets: 30 },
+  { name: 'weekly',  bucketDays: 7,  buckets: 12 },
+  { name: 'monthly', bucketDays: 30, buckets: 6  },
+];
+
+/**
+ * Deterministic aggregation over ANALYTICS_EVENTS for a given window.
+ * Returns a report shape with a schema version so downstream consumers can
+ * evolve safely. Private events are aggregated into a redacted bucket.
+ */
+function aggregateTrends(events, window) {
+  const { name, bucketDays, buckets } = window;
+  const bucketMs = bucketDays * DAY;
+  const endMs = NOW.getTime();
+  const startMs = endMs - buckets * bucketMs;
+
+  const series = Array.from({ length: buckets }, (_, i) => ({
+    bucketStart: new Date(startMs + i * bucketMs).toISOString(),
+    bucketEnd:   new Date(startMs + (i + 1) * bucketMs).toISOString(),
+    totals:      { usage: 0, failure: 0, recovery: 0, domain: 0 },
+    redacted:    0,
+  }));
+
+  for (const ev of events) {
+    const t = ev.occurredAt.getTime();
+    if (t < startMs || t >= endMs) continue;
+    const idx = Math.min(buckets - 1, Math.floor((t - startMs) / bucketMs));
+    const bucket = series[idx];
+    if (ev.private) {
+      bucket.redacted += 1;
+      continue;
+    }
+    if (EVENT_TYPES.includes(ev.type)) {
+      bucket.totals[ev.type] += ev.value;
+    }
+  }
+
+  return {
+    schemaVersion: 1,
+    window:        name,
+    bucketDays,
+    generatedAt:   NOW.toISOString(),
+    series,
+  };
+}
 
 // ── seeding logic ─────────────────────────────────────────────────────────────
 
@@ -499,14 +508,14 @@ async function main() {
         ...PURCHASES.map(d => d._id),
         ...ENTITLEMENTS.map(d => d._id),
         ...REFUNDS.map(d => d._id),
-        ...FAILURES.map(d => d._id),
+        ...ANALYTICS_EVENTS.map(d => d._id),
       ];
       await db.collection('users').deleteMany({ _id: { $in: ids } });
       await db.collection('materials').deleteMany({ _id: { $in: ids } });
       await db.collection('purchases').deleteMany({ _id: { $in: ids } });
       await db.collection('entitlement_cache').deleteMany({ _id: { $in: ids } });
       await db.collection('refunds').deleteMany({ _id: { $in: ids } });
-      await db.collection('failures').deleteMany({ _id: { $in: ids } });
+      await db.collection('analytics_events').deleteMany({ _id: { $in: ids } });
       warn('Existing fixture documents cleared.');
     }
 
@@ -530,9 +539,9 @@ async function main() {
     const refResult = await upsertAll(db.collection('refunds'), REFUNDS);
     ok(`refunds: ${refResult.inserted} inserted, ${refResult.updated} updated`);
 
-    log('Seeding failures (5 unresolved + 1 resolved) …');
-    const failResult = await upsertAll(db.collection('failures'), FAILURES);
-    ok(`failures: ${failResult.inserted} inserted, ${failResult.updated} updated`);
+    log(`Seeding analytics_events (${ANALYTICS_EVENTS.length} deterministic events) …`);
+    const evtResult = await upsertAll(db.collection('analytics_events'), ANALYTICS_EVENTS);
+    ok(`analytics_events: ${evtResult.inserted} inserted, ${evtResult.updated} updated`);
 
     // Print counts for quick verification.
     const counts = {
@@ -541,11 +550,23 @@ async function main() {
       purchases:         await db.collection('purchases').countDocuments(),
       entitlement_cache: await db.collection('entitlement_cache').countDocuments(),
       refunds:           await db.collection('refunds').countDocuments(),
-      failures:          await db.collection('failures').countDocuments(),
+      analytics_events:  await db.collection('analytics_events').countDocuments(),
     };
 
     log('Collection totals after seed:');
     Object.entries(counts).forEach(([col, n]) => log(`  ${col}: ${n} documents`));
+
+    // Emit deterministic trend reports for each configured window so that
+    // maintainer analytics can be validated against fixture data.
+    log('Computing deterministic trend aggregations …');
+    for (const window of TREND_WINDOWS) {
+      const report = aggregateTrends(ANALYTICS_EVENTS, window);
+      const total = report.series.reduce(
+        (acc, b) => acc + Object.values(b.totals).reduce((a, v) => a + v, 0),
+        0,
+      );
+      ok(`trend[${window.name}] schemaVersion=${report.schemaVersion} buckets=${report.series.length} total=${total}`);
+    }
 
     ok('Fixture seeding complete.');
   } catch (err) {
