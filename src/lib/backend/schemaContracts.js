@@ -55,6 +55,12 @@ export const REQUIRED_INDEXES = {
       options: { unique: true, partialFilterExpression: { externalId: { $type: "string" } }, name: "materials_import_external_id_idx" },
     },
     { keys: { importBatchId: 1 }, options: { sparse: true, name: "materials_import_batch_idx" } },
+    // #888: provenance lookups from the maintainer export endpoint and by
+    // batch/actor/source. Sparse so records predating provenance stay out.
+    { keys: { "provenance.kind": 1 }, options: { name: "materials_provenance_kind_idx", background: true } },
+    { keys: { "provenance.origin.importBatchId": 1 }, options: { sparse: true, name: "materials_provenance_import_batch_idx", background: true } },
+    { keys: { "provenance.origin.materialId": 1 }, options: { sparse: true, name: "materials_provenance_source_idx", background: true } },
+    { keys: { "provenance.actor.walletAddress": 1 }, options: { sparse: true, name: "materials_provenance_actor_idx", background: true } },
     { keys: { visibility: 1, createdAt: -1 } },
     { keys: { materialId: 1 }, options: { sparse: true } },
     { keys: { tokenId: 1 }, options: { unique: true, sparse: true } },
