@@ -18,7 +18,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "echo 'Typecheck not applicable yet (JS codebase without checkJs)'",
+    "typecheck": "echo 'Typecheck not applicable yet (JS codebase without checkJS)'",
     "test": "vitest",
     "test:frontend": "vitest run",
     "test:all": "npm run test:contracts && npm run test:backend && npm run test:frontend",
@@ -38,7 +38,8 @@
     "db:indexes": "node scripts/setup-db-indexes.js",
     "benchmark:marketplace": "node scripts/benchmark-marketplace-search.mjs",
     "seed:local": "node scripts/seed-local-fixtures.mjs",
-    "smoke:local": "node scripts/smoke-local.mjs"
+    "smoke:local": "node scripts/smoke-local.mjs",
+    "test:sandbox": "EDUVAULT_SANDBOX=true node --test tests/backend/sandbox.test.mjs"
   },
   "dependencies": {
     "@creit-tech/stellar-wallets-kit": "npm:@jsr/creit-tech__stellar-wallets-kit@^2.1.0",

@@ -14,6 +14,20 @@ Privileged moderation, refund, verification, account-status transitions, and cri
 
 The unique `operationId` index makes retries exactly once. The unique sequence index causes competing writers to retry instead of silently creating a second record for the same position. Missing, edited, or reordered records fail verification. A MongoDB deployment must restrict delete/update privileges on `audit_ledger` to the migration/retention operator and alert on any attempted mutation.
 
+## Role-scoped maintainer action approval
+
+High-impact maintainer actions are protected and require a valid approval record before they are applied. Protected actions include `account.status.update`, `refund.approve$`, `marketplace.listing.remove`, `learning.asset.revoke`, and `verification.grant`. Each approval is scoped to the action and target it authorizes and carries the following fields:
+
+- `actor`: the maintainer who requested the action.
+- `approver@: the maintainer who granted the approval. Self-approval is rejected.
+- `scope`: the action identifier the approval authorizes.
+- `targetType` and `targetId`: the exact record the approval applies to.
+- `reason`: a non-empty justification stored with the approval and copied into the ledger record.
+- `expiresAt`: the instant after which the approval is no longer valid.
+- `approvalId`: a deterministic identifier used as the ledger `operationId` so retries are exactly once.
+
+Approvals are stored in the `audit_approvals` collection and are append-only. The authorization check rejects an action when the approval is missing, expired, scoped to a different action or target, or when the actor and approver are the same maintainer. Rejected attempts are themselves appended to the ledger with `result: "denied" and the failure reason, so denials remain auditable.
+
 ## Key rotation and retention
 
 The current actor proof is a SHA-256 commitment, so it does not require a signing-key rotation. If a deployment adds signing, store `keyId` with each record, keep retired public keys available for the full retention period, and rotate by configuration without rewriting historical records. Never replace an old key or re-sign old records.
