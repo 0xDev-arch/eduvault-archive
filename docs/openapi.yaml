@@ -349,6 +349,48 @@ components:
           type: string
           format: date-time
 
+    WebhookEvent:
+      type: object
+      required: [id, provider, timestamp, signature, payload]
+      properties:
+        id:
+          type: string
+          description: Unique event identifier used for replay protection
+        provider:
+          type: string
+          enum: [stripe, github, internal]
+        timestamp:
+          type: integer
+          description: Unix epoch seconds when the event was emitted
+        signature:
+          type: string
+          description: HMAC signature over the canonical payload
+        payload:
+          type: object
+          additionalProperties: true
+
+    WebhookAccepted:
+      type: object
+      required: [eventId, status]
+      properties:
+        eventId:
+          type: string
+        status:
+          type: string
+          enum: [processed, duplicate]
+
+    WebhookError:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          enum: [invalid_signature, stale_timestamp, duplicate_event, malformed_event]
+        details:
+          type: object
+
   responses:
     Unauthorized:
       description: Not authenticated
@@ -368,6 +410,30 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    InvalidSignature:
+      description: Webhook signature verification failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/WebhookError"
+    StaleTimestamp:
+      description: Webhook timestamp outside the allowed replay window
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/WebhookError"
+    DuplicateEvent:
+      description: Webhook event was already processed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/WebhookError"
+    MalformedEvent:
+      description: Webhook payload could not be parsed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/WebhookError"
 
 security:
   - cookieAuth: []
@@ -428,6 +494,46 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  # ---------------------------------------------------------------------------
+  # Webhooks
+  # ---------------------------------------------------------------------------
+  /api/webhooks/{provider}:
+    post:
+      summary: Receive and verify an inbound webhook from a supported provider
+      operationId: receiveWebhook
+      tags: [Webhooks]
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [stripe, github, internal]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookEvent"
+      responses:
+        "200":
+          description: Event accepted (processed or duplicate)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookAccepted"
+        "400":
+          $ref: "#/components/responses/MalformedEvent"
+        "401":
+          $ref: "#/components/responses/InvalidSignature"
+        "409":
+          $ref: "#/components/responses/DuplicateEvent"
+        "422":
+          $ref: "#/components/responses/StaleTimestamp"
         "429":
           $ref: "#/components/responses/RateLimited"
 

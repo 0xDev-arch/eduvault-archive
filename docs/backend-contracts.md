@@ -104,6 +104,34 @@ Indexes:
 - unique `{ buyerAddress: 1, materialId: 1 }`.
 - `{ active: 1, updatedAt: -1 }`.
 
+### `webhook_events`
+
+Idempotency log for inbound webhook and integration callback deliveries.
+Every verified delivery is recorded before side effects run so that a
+replayed event with a valid signature is acknowledged without repeating
+those side effects.
+
+Required fields:
+
+- `_id`: stable dedupe key, `{provider}:{eventId}`.
+- `provider`: webhook provider or internal callback source key.
+- `eventId`: provider-supplied event identifier.
+- `signatureTimestamp`: Unix seconds from the signed payload header.
+- `status`: `processed` or `failed`.
+- `createdAt` / `updatedAt`: timestamps.
+
+Optional fields:
+
+- `errorCode`: stable `EVT_WEBHOOK_*` code when `status` is `failed`.
+- `attempts`: delivery attempts observed for this event id.
+
+Indexes:
+
+- unique `_id` (dedupe key).
+- `{ provider: 1, createdAt: -1 }` for provider-scoped replay auditing.
+- TTL `{ createdAt: 1 }` with `expireAfterSeconds` set to the replay window
+  (default 24h) so the log stays bounded.
+
 ### `sync_state`
 
 Durable indexer checkpoint state.
@@ -121,6 +149,39 @@ Required fields:
 
 - `_id`: stable event id.
 - `type`, `source`, `raw`, `createdAt`.
+
+## Inbound Webhook Verification
+
+Inbound webhooks and integration callbacks are verified before any handler
+runs. The canonical signing scheme, header names, and rotation rules live in
+[`docs/webhook-signatures.md`](webhook-signatures.md); this section defines
+the backend contract that routes must honour.
+
+Verification order (fail fast, no side effects before step 4):
+
+1. Parse the raw body and read the signature and timestamp headers. A missing
+   or malformed header is rejected with `EVT_WEBHOOK_001`.
+2. Recompute the HMAC over `{timestamp}.{rawBody}` using the provider secret
+   (current secret first, then `webhookSigningSecretPrevious` during
+   rotation). A mismatch is rejected with `EVT_WEBHOOK_002`.
+3. Reject timestamps outside the replay window (default 300s in the past,
+   60s in the future) with `EVT_WEBHOOK_003`.
+4. Insert `{ _id: "{provider}:{eventId}" }` into `webhook_events`. A
+   duplicate key means the event was already handled: respond `200` with
+   `{ "duplicate": true }` and skip side effects (`EVT_WEBHOOK_004` is
+   reserved for explicit duplicate rejections when a caller opts in).
+5. Run the handler, then mark the record `processed` (or `failed` with an
+   `errorCode`).
+
+Structured error envelope (see [Stable Error Codes](#stable-error-codes)):
+
+| Condition              | Code             | `retryable` |
+| ---------------------- | ---------------- | ----------- |
+| Missing/malformed sig  | `EVT_WEBHOOK_001`| `false`     |
+| Invalid signature      | `EVT_WEBHOOK_002`| `false`     |
+| Stale/future timestamp | `EVT_WEBHOOK_003`| `false`     |
+| Duplicate event id     | `EVT_WEBHOOK_004`| `false`     |
+| Handler failure        | `EVT_WEBHOOK_005`| `true`      |
 
 ## API Contracts
 
@@ -298,6 +359,27 @@ Response:
 - `byMaterial`: per-material `{ materialId, title, salesCount, grossRevenue }`,
   sorted by revenue descending.
 
+### `POST /api/webhooks/{provider}`
+
+Auth: signature headers only; no session cookie is required.
+
+Request:
+
+- Raw body is the exact bytes signed by the provider.
+- `X-Webhook-Signature`: hex HMAC of `{timestamp}.{rawBody}`.
+- `X-Webhook-Timestamp`: Unix seconds.
+- `X-Webhook-Id`: provider event id used as the dedupe key.
+
+Response:
+
+- `200 { "received": true }` on first successful processing.
+- `200 { "received": true, "duplicate": true }` when the event id was
+  already processed.
+- `400` with the structured envelope and `EVT_WEBHOOK_001`–`EVT_WEBHOOK_003`
+  for malformed, invalid, or stale deliveries.
+- `500` with `EVT_WEBHOOK_005` when the handler fails; the event record is
+  left `failed` so a provider retry can reprocess it.
+
 ## Schema Change Rules
 
 - Add fields as optional first, then backfill, then make route-level validation stricter.
@@ -340,7 +422,7 @@ below summarises the namespace-to-subsystem relationship:
 | `EVT_REFUND_`       | Refund flow                       |
 | `EVT_STORAGE_`      | IPFS / Pinata storage             |
 | `EVT_INDEXER_`      | Stellar event indexer             |
-| `EVT_WEBHOOK_`      | Outbound creator webhooks         |
+| `EVT_WEBHOOK_`      | Inbound webhook verification and outbound creator webhooks |
 | `EVT_AUTH_`         | Authentication / authorisation    |
 | `EVT_CONTRACT_PM_`  | PurchaseManager on-chain errors   |
 | `EVT_CONTRACT_REG_` | MaterialRegistry on-chain errors  |
@@ -368,3 +450,6 @@ below summarises the namespace-to-subsystem relationship:
 Add a focused test for each new error mapping when adding or changing a route.
 See `src/lib/__tests__/` for existing test patterns. Tests must assert the
 stable `code` field value, not the `message` string.
+Webhook verification tests must cover valid, invalid, stale, duplicate, and
+malformed deliveries, and assert that duplicate valid events do not repeat
+side effects.

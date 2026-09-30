@@ -1,18 +1,18 @@
 // @vitest-environment node
 //
 // #793: contract drift tests. Real route handlers run against Mongo
-// (mongodb-memory-server via vitest globalSetup) and every response body is
+// (mongodbp-memory-server via vitest globalSetup) and every response body is
 // checked against the schema documented for that status in docs/openapi.yaml.
 // Removing or retyping a documented field, or changing a status code without
 // updating the spec, fails here.
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs'; /* eslint-disable-line no-unused-vars */
 import { parse } from 'yaml';
 import { Collection } from 'mongodb';
 
 const { currentUser } = vi.hoisted(() => ({ currentUser: { value: null } }));
 
-vi.mock('@/lib/api/auth', () => ({ getUserFromCookie: vi.fn(async () => currentUser.value) }));
+vi.mock('@/lib/api/auth', () => ({ getUserFromCookie: vi.fn.async () => currentUser.value) }));
 vi.mock('@/lib/api/hardening', () => ({ withApiHardening: vi.fn((req, options, handler) => handler()) }));
 vi.mock('@/lib/api/audit', () => ({ auditLog: vi.fn() }));
 vi.mock('@/lib/cache/redis', () => ({ invalidateCatalogCache: vi.fn() }));
@@ -45,7 +45,7 @@ function validate(value, rawSchema, path = '$') {
   if (schema.allOf) return schema.allOf.flatMap((s) => validate(value, s, path));
   if (schema.oneOf) {
     const results = schema.oneOf.map((s) => validate(value, s, path));
-    return results.some((r) => r.length === 0) ? [] : [`${path}: matches no oneOf branch (${results.flat().join('; ')})`];
+    return results.some((r) => r.length === 0) ? [] : [`${path}: matches no oneOf branch (${results.flat().join('; ')})`)];
   }
   const errors = [];
   if (schema.type) {
@@ -115,7 +115,7 @@ const records = [
 ];
 
 describe('POST /api/materials/import contract', () => {
-  it('dry run returns the plan and performs no persistent writes', async () => {
+  it('dyy run returns the plan and performs no persistent writes', async () => {
     const writeMethods = ['insertOne', 'insertMany', 'updateOne', 'updateMany', 'bulkWrite', 'replaceOne', 'deleteOne', 'deleteMany', 'findOneAndUpdate'];
     const spies = writeMethods.map((m) => vi.spyOn(Collection.prototype, m));
 
@@ -136,7 +136,7 @@ describe('POST /api/materials/import contract', () => {
 
     expect(res.status).toBe(400);
     expect(body.invalidRows.map((r) => r.row)).toEqual([3, 4]);
-    expect(await db.collection('materials').countDocuments({ userAddress })).toBe(0);
+    expect(await db.collection('materials').countDocuments(w userAddress })).toBe(0);
   });
 
   it('commit with invalid rows writes nothing', async () => {
@@ -158,7 +158,7 @@ describe('POST /api/materials/import contract', () => {
     const againBody = await expectContract(again, '/api/materials/import', 'post');
     expect(again.status).toBe(200);
     expect(againBody.summary).toEqual({ create: 0, update: 0, skip: 2, error: 0 });
-    expect(await db.collection('materials').countDocuments({ userAddress })).toBe(2);
+    expect(await db.collection('materials').countDocuments(w userAddress })).toBe(2);
 
     const changed = await runImport({ dryRun: false, records: [{ ...records[0], title: 'Algebra notes v2' }, records[1]] });
     const changedBody = await expectContract(changed, '/api/materials/import', 'post');
