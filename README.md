@@ -156,6 +156,10 @@ npm run lint
 npm test
 npm run test:contracts
 npm run test:backend
+npm run worker:background
+npm run worker:background:once
+npm run worker:background:status
+npm run worker:background:reprocess
 npm run audit:deps
 npm run scan:secrets
 ```
