@@ -188,7 +188,7 @@ npm run test:contracts
 - [Environment Setup](docs/environment-setup.md)
 - [Contribution Guide](docs/contributing.md)
 - [Backend Contracts](docs/backend-contracts.md)
-- [Schema & API Compatibility](docs/SCHEMA_COMPATIBILITY.md)
+- [Record Provenance](docs/provenance.md)
 - [Stellar Purchase Flow](docs/stellar-purchase-flow.md)
 - [Stellar Wallet Setup](docs/stellar-wallet-setup.md)
 - [Creator Publishing Guide](docs/creator-publishing-guide.md)

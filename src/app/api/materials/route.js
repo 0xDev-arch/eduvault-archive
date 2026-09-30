@@ -11,15 +11,23 @@ import { buildMaterialHistoryEntry, EDITABLE_MATERIAL_FIELDS } from "@/lib/backe
 import { enqueueMaterialSearchProjection } from "@/lib/backend/materialSearchProjection";
 import { evaluateAndQueueListing } from "@/lib/backend/manipulationScoring";
 import { invalidateCatalogCache } from "@/lib/cache/redis";
-import {
-  readRecord,
-  writeRecord,
-  negotiateSchemaVersion,
-  schemaResponseHeaders,
-  UnsupportedSchemaVersionError,
-} from "@/lib/backend/schemaCompat";
+import { buildDerivedProvenance, recordProvenanceRevision } from "@/lib/backend/provenance";
 
 export const runtime = "nodejs";
+
+// Resolve the source of a derived record by id first, then by the creator's
+// external id, so a derivative can be attached to a record regardless of
+// which handle the caller knows.
+async function findDerivedSource(db, derivedFrom = {}) {
+  const materials = db.collection("materials");
+  if (derivedFrom.materialId && ObjectId.isValid(derivedFrom.materialId)) {
+    return materials.findOne({ _id: new ObjectId(derivedFrom.materialId) });
+  }
+  if (derivedFrom.externalId) {
+    return materials.findOne({ externalId: derivedFrom.externalId });
+  }
+  return null;
+}
 
 function sanitizeMaterial(doc) {
   if (!doc) return doc;
@@ -55,17 +63,31 @@ export async function POST(request) {
           }
         }
 
-        const doc = writeRecord(
-          "materials",
-          {
-            userAddress,
-            ...material,
-            version: 1,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-          { version: negotiation.version }
-        );
+        // A record created from another listing carries derived provenance so
+        // maintainers can walk back to the source (even after it is deleted).
+        let provenance = null;
+        if (material.derivedFrom) {
+          const source = await findDerivedSource(db, material.derivedFrom);
+          if (!source) {
+            return NextResponse.json({ error: "Source material for derivedFrom was not found" }, { status: 400 });
+          }
+          provenance = buildDerivedProvenance({
+            sourceMaterialId: String(source._id),
+            sourceExternalId: source.externalId || material.derivedFrom.externalId || null,
+            relation: material.derivedFrom.relation,
+            actorAddress: userAddress,
+            actorUserId: user.sub || null,
+          });
+        }
+
+        const doc = {
+          userAddress,
+          ...material,
+          ...(provenance ? { provenance } : {}),
+          version: 1,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
 
         const result = await db.collection("materials").insertOne(doc);
         const assessment = await evaluateAndQueueListing(db, { _id: result.insertedId, ...doc });
@@ -201,22 +223,25 @@ export async function PUT(request) {
         }
 
         const now = new Date();
-        const nextVersion = currentVersion + 1;
+        const nextVersion = (existing.version || 1) + 1;
+        // Preserve the immutable origin and append a revision, so an edit can
+        // never rewrite where the record came from.
+        const provenance = existing.provenance
+          ? recordProvenanceRevision(existing.provenance, {
+            actorAddress: userAddress,
+            actorUserId: user.sub || null,
+            changedFields: Object.keys(updates),
+            source: "creator",
+            now,
+          })
+          : undefined;
         const updateDoc = {
           ...updates,
+          ...(provenance ? { provenance } : {}),
           updatedAt: now,
           updatedBy: userAddress,
           version: nextVersion,
           searchVersion: nextVersion,
-        };
-
-        // Atomic Compare-And-Swap (CAS) update to prevent lost updates from concurrent writes
-        const filter = {
-          _id: new ObjectId(materialId),
-          $or: [
-            { version: currentVersion },
-            ...(currentVersion === 1 ? [{ version: { $exists: false } }] : []),
-          ],
         };
 
         const result = await db.collection("materials").findOneAndUpdate(
