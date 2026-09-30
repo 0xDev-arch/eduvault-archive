@@ -25,6 +25,7 @@
     "test:contracts": "hardhat test",
     "test:integration": "vitest run test/integration",
     "test:backend": "npx tsx --test tests/backend/*.test.mjs",
+    "test:concurrency": "vitest run test/concurrency",
     "audit:deps": "npm audit --audit-level=critical",
     "audit:deps:high": "npm audit --audit-level=high",
     "audit:deps:critical": "npm audit --audit-level=critical",
@@ -79,7 +80,7 @@
     "yauzl": "^3.4.0"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-ethers": "^3.1.2",
+    "@nominationfoundation/hardhat-ethers": "^3.1.2",
     "@tailwindcss/postcss": "^4.2.3",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
