@@ -31,6 +31,16 @@ docker compose up -d mongodb
 npm run dev
 ```
 
+### Local Diagnostics
+
+Before starting development, or if you encounter environment-related issues, run the local diagnostics command:
+
+```bash
+npm run diagnostics
+```
+
+This command checks your Node.js version, environment variables, database connectivity, and test fixtures. It will output clear pass/fail results along with actionable remediation steps if anything is misconfigured or missing.
+
 ### Windows Setup Notes
 If you are using Windows PowerShell, you may encounter script execution policy errors when running `npx` or `npm` scripts. To resolve this, run PowerShell as Administrator and enable script execution:
 ```powershell
