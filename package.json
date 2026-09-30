@@ -39,9 +39,7 @@
     "benchmark:marketplace": "node scripts/benchmark-marketplace-search.mjs",
     "seed:local": "node scripts/seed-local-fixtures.mjs",
     "smoke:local": "node scripts/smoke-local.mjs",
-    "cache:repair": "node scripts/repair-stale-cache.mjs",
-    "cache:repair:dry": "DRY_RUN = true node scripts/repair-stale-cache.mjs",
-    "test:cache": "vitest run tests/cache/stale-cache.test.mjs"
+    "test:sandbox": "EDUVAULT_SANDBOX=true node --test tests/backend/sandbox.test.mjs"
   },
   "dependencies": {
     "@creit-tech/stellar-wallets-kit": "npm:@jsr/creit-tech__stellar-wallets-kit@^2.1.0",
