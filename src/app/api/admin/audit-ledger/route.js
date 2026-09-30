@@ -13,13 +13,21 @@ export async function GET(request) {
 
   try {
     const url = new URL(request.url);
-    const params = Object.fromEntries(url.searchParams.entries());
+    const rawParams = Object.fromEntries(url.searchParams.entries());
+    const params = stripApprovalParams(rawParams);
     const limit = Math.min(Math.max(Number(params.limit) || 1000, 1), 5000);
+
+    const guard = await enforceApproval(request, "export_audit_ledger", rawParams, admin);
+    if (guard.error) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
+    }
+
     const records = await readAuditRecords(await getDb(), { ...params, limit });
     const filtered = Object.keys(params).some((key) => ["action", "actor", "targetType", "operationId", "from", "to"].includes(key));
     return NextResponse.json({
       records,
       exportedAt: new Date().toISOString(),
+      approval: guard.approval,
       verification: filtered ? { valid: null, note: "Verify an unfiltered export to validate the complete chain." } : verifyAuditRecords(records),
     });
   } catch (error) {
@@ -45,7 +53,7 @@ export async function POST(request) {
       });
     }
     const checkpoint = await createAuditCheckpoint(await getDb());
-    return NextResponse.json({ success: true, checkpoint });
+    return NextResponse.json({ success: true, checkpoint, approval: guard.approval });
   } catch (error) {
     console.error("Audit ledger checkpoint error:", error);
     return NextResponse.json({ error: "Failed to create audit checkpoint" }, { status: 500 });
