@@ -11,6 +11,13 @@ import { buildMaterialHistoryEntry, EDITABLE_MATERIAL_FIELDS } from "@/lib/backe
 import { enqueueMaterialSearchProjection } from "@/lib/backend/materialSearchProjection";
 import { evaluateAndQueueListing } from "@/lib/backend/manipulationScoring";
 import { invalidateCatalogCache } from "@/lib/cache/redis";
+import {
+  readRecord,
+  writeRecord,
+  negotiateSchemaVersion,
+  schemaResponseHeaders,
+  UnsupportedSchemaVersionError,
+} from "@/lib/backend/schemaCompat";
 
 export const runtime = "nodejs";
 
@@ -32,6 +39,8 @@ export async function POST(request) {
           return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
+        // #803: an older client may pin the shape it knows via X-Schema-Version.
+        const negotiation = negotiateSchemaVersion(request, "materials");
         const material = validateMaterialPayload(await request.json());
 
         const db = await getDb();
@@ -46,13 +55,17 @@ export async function POST(request) {
           }
         }
 
-        const doc = {
-          userAddress,
-          ...material,
-          version: 1,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
+        const doc = writeRecord(
+          "materials",
+          {
+            userAddress,
+            ...material,
+            version: 1,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          { version: negotiation.version }
+        );
 
         const result = await db.collection("materials").insertOne(doc);
         const assessment = await evaluateAndQueueListing(db, { _id: result.insertedId, ...doc });
@@ -63,9 +76,15 @@ export async function POST(request) {
         });
         await invalidateCatalogCache();
         auditLog({ event: "material_created", route: "materials", method: "POST", status: 201, actor: user.sub });
-        return NextResponse.json({ success: true, materialId: result.insertedId, ...sanitizeMaterial(doc) }, { status: 201 });
+        return NextResponse.json(
+          { success: true, materialId: result.insertedId, ...sanitizeMaterial(doc) },
+          { status: 201, headers: schemaResponseHeaders("materials", negotiation.version) }
+        );
       } catch (err) {
         if (err.name === "ValidationError") throw err;
+        if (err instanceof UnsupportedSchemaVersionError) {
+          return NextResponse.json({ error: err.message, collection: err.collection, latest: err.latest }, { status: 400 });
+        }
         auditLog({ event: "material_create_failed", route: "materials", method: "POST", status: 500, reason: err.message });
         return NextResponse.json({ error: "Server error" }, { status: 500 });
       }
@@ -85,6 +104,9 @@ export async function GET(request) {
           return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
+        // #803: legacy documents are upgraded in-memory to the requested
+        // shape, so old records stay readable before a backfill reaches them.
+        const negotiation = negotiateSchemaVersion(request, "materials");
         const db = await getDb();
         const userAddress = user.walletAddress || user.address || user.id;
         const items = await db
@@ -93,10 +115,15 @@ export async function GET(request) {
           .sort({ createdAt: -1 })
           .toArray();
 
-        const normalized = items.map(sanitizeMaterial);
-        return NextResponse.json(normalized);
+        const normalized = items.map((doc) =>
+          readRecord("materials", sanitizeMaterial(doc), { targetVersion: negotiation.version })
+        );
+        return NextResponse.json(normalized, { headers: schemaResponseHeaders("materials", negotiation.version) });
       } catch (err) {
         if (err.name === "ValidationError") throw err;
+        if (err instanceof UnsupportedSchemaVersionError) {
+          return NextResponse.json({ error: err.message, collection: err.collection, latest: err.latest }, { status: 400 });
+        }
         auditLog({ event: "material_list_failed", route: "materials", method: "GET", status: 500, reason: err.message });
         return NextResponse.json({ error: "Server error" }, { status: 500 });
       }
