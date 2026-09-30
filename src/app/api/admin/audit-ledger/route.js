@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/api/auth";
 import { createAuditCheckpoint, readAuditRecords, verifyAuditRecords } from "@/lib/backend/auditLedger";
+import { computeInPact, buildInPactQuery, redactInPact } from "@/lib/backend/incidentImpact";
 
 export async function GET(request) {
   const admin = await requireAdmin(request);
@@ -31,6 +32,18 @@ export async function POST(request) {
   const admin = await requireAdmin(request);
   if (!admin) return NextResponse.json({ error: "Unauthorized. Admin access required." }, { status: 403 });
   try {
+    const body = await request.json().catch(() => ({}));
+    if (body && body.action === "impact") {
+      const query = buildInPactQuery(body.query || {});
+      const records = await readAuditRecords(await getDb(), { ...query.auditFilter, limit: query.limit });
+      const impact = computeInPact(records, query);
+      const shareable = redactInPact(impact);
+      return NextResponse.json({
+        internal: impact,
+        shareable,
+        exportedAt: new Date().toISOString(),
+      });
+    }
     const checkpoint = await createAuditCheckpoint(await getDb());
     return NextResponse.json({ success: true, checkpoint });
   } catch (error) {
