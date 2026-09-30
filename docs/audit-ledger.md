@@ -1,6 +1,12 @@
 # Tamper-Evident Audit Ledger
 
-Privileged moderation, refund, verification, and account-status transitions append a record to the `audit_ledger` MongoDB collection. Each record contains a minimized actor identifier, an `actorProof` hash, action, target type and identifier, result, reason, intent hash, timestamp, sequence, previous hash, and record hash. Sensitive request bodies and personal fields are never copied into the ledger.
+Privileged moderation, refund, verification, account-status transitions, and critical material changes append a record to the `audit_ledger` MongoDB collection. Each record contains a minimized actor identifier, an `actorProof` hash, action, target type and identifier, result, reason, intent hash, timestamp, sequence, previous hash, and record hash. Critical material edits and catalog retire/restore actions additionally retain minimized `before` and `after` metadata, so price, licence/usage terms, visibility, and catalog access changes can be investigated without relying on mutable timestamps. Sensitive request bodies, storage credentials, and personal fields are never copied into the ledger.
+
+## Covered critical records
+
+- **Materials:** creator edits to listing terms and catalog retirement/restoration can change price, public discoverability, or a learner's ability to find an owned resource.
+- **Purchases:** a pending-to-confirmed payment transition grants the purchaser access and records the amount and asset that were confirmed. Signed transaction payloads are deliberately excluded.
+- **Privileged records:** account status, role, verification, moderation, and refund paths already append to this ledger because they change permissions, ownership, or money.
 
 ## Integrity and export
 
@@ -30,4 +36,4 @@ Retain ledger records for the organisation's legal and incident-response period,
 
 ## Rollout
 
-Deploy the indexes before enabling privileged writes, deploy the application in append-only mode, and monitor duplicate-key and chain-conflict errors. Existing console and refund-local audit records remain available for compatibility; new privileged operations are written to the shared ledger. Backfill is intentionally excluded because historical records lack the canonical actor proof and intent fields.
+Deploy the indexes before enabling privileged writes, deploy the application in append-only mode, and monitor duplicate-key and chain-conflict errors. Existing console and refund-local audit records remain available for compatibility; new privileged operations are written to the shared ledger. A material update is only reported after its ledger record is appended; if ledger persistence fails after the database update, investigate and repair the mutation before retrying. Backfill is intentionally excluded because historical records lack the canonical actor proof and intent fields.
