@@ -332,6 +332,15 @@ export function validateChangeReason(reason) {
   return sanitizeString(reason, { maxLength: 500 });
 }
 
+export function validateExpectedVersion(version) {
+  if (version === undefined || version === null || version === "") return null;
+  const num = Number(version);
+  if (!Number.isInteger(num) || num < 1) {
+    throw new ValidationError("Invalid expectedVersion: must be a positive integer", { field: "version" });
+  }
+  return num;
+}
+
 export function validateDateRangeQuery(searchParams, { maxRangeDays = 366, defaultRangeDays = 30 } = {}) {
   const fromParam = searchParams.get("from");
   const toParam = searchParams.get("to");
