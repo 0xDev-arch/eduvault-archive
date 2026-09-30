@@ -8,7 +8,10 @@ import { withApiHardening } from "@/lib/api/hardening";
 import { getDb } from "@/lib/mongodb";
 import { auditLog } from "@/lib/api/audit";
 import { errorResponse } from "@/lib/utils/errorResponse";
-import { enqueueMaterialSearchProjection } from "@/lib/backend/materialSearchProjection";
+import {
+  enqueueMaterialSearchProjection,
+  enqueueMaterialSearchDeletion,
+} from "@/lib/backend/materialSearchProjection";
 
 function normalizeAddress(addr) {
   return String(addr || "").trim().toLowerCase();
@@ -89,16 +92,30 @@ export async function POST(request, context) {
           updatedAt: now,
           updatedBy: userAddress,
           searchVersion: nextSearchVersion,
+          // Archived materials are not searchable; restored materials are indexable again.
+          searchVisibility: archived ? "hidden" : "public",
         };
 
         await db.collection("materials").updateOne(query, { $set: updateDoc });
         const updatedMaterial = { ...material, ...updateDoc };
-        await enqueueMaterialSearchProjection({
-          db,
-          material: updatedMaterial,
-          reason: archived ? "material_archived" : "material_restored",
-          now,
-        });
+
+        if (archived) {
+          // Remove the material from all search indexes so restricted records cannot
+          // leak through unauthorized queries.
+          await enqueueMaterialSearchDeletion({
+            db,
+            material: updatedMaterial,
+            reason: "material_archived",
+            now,
+          });
+        } else {
+          await enqueueMaterialSearchProjection({
+            db,
+            material: updatedMaterial,
+            reason: "material_restored",
+            now,
+          });
+        }
 
         auditLog({
           event: archived ? "material_archived" : "material_restored",

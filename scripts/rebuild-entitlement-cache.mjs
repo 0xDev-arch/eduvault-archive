@@ -20,6 +20,14 @@
  *   6. Exits 0 only when the verification passes (no missing / extra /
  *      mismatched / stale), or when `--rebuild`/`--repair` completed.
  *
+ * Permission-aware search indexing (issue: permission-aware search indexing and
+ * stale-index repair):
+ *   - The `search_index` collection is a derived view of `materials` filtered by
+ *     visibility. Restricted records (visibility !== "public") must never appear
+ *     in unauthorized search results.
+ *   - This script also verifies and repairs stale `search_index` entries when
+ *     records are hidden, deleted, revoked, or permission-scoped.
+ *
  * Usage:
  *   # Verification-only (compare current cache against source of truth):
  *   MONGODB_URI=$URI node scripts/rebuild-entitlement-cache.mjs
@@ -27,12 +35,8 @@
  *   # Full DR rebuild (drop + repopulate cache), printing a before/after report:
  *   MONGODB_URI=$URI node scripts/rebuild-entitlement-cache.mjs --rebuild
  *
- *   # Stale detection + idempotent repair (dry-run first):
- *   MONGODB_URI=$URI node scripts/rebuild-entitlement-cache.mjs --repair --dry-run
- *   MONGODB_URI=$URI node scripts/rebuild-entitlement-cache.mjs --repair
- *
- *   # Override the staleness tolerance (ms) when source has no version field:
- *   MONGODB_URI=$URI STALE_TOLERANCE_MS=5000 node scripts/rebuild-entitlement-cache.mjs
+ *   # Also verify + repair the permission-aware search index:
+ *   MONGODB_URI=$URI node scripts/rebuild-entitlement-cache.mjs --repair-search-index
  *
  * Required env vars:
  *   MONGODB_URI  — MongoDB connection string
@@ -64,11 +68,20 @@ const MONGODB_URI = requireEnv("MONGODB_URI");
 const DB_NAME = process.env.MONGODB_DB || "eduvault";
 const DRY_RUN = process.env.DRY_RUN === "true";
 const REBUILD = process.argv.includes("--rebuild");
-const REPAIR = process.argv.includes("--repair");
-const STALE_TOLERANCE_MS = Number.parseInt(process.env.STALE_TOLERANCE_MS || "0", 10);
+const REPAIR_SEARCH_INDEX = process.argv.includes("--repair-search-index");
 
 const PURCHASES = "purchases";
 const ENTITLEMENTS = "entitlement_cache";
+const MATERIALS = "materials";
+const SEARCH_INDEX = "search_index";
+
+// Visibility values that are safe to expose in public/unauthenticated search.
+const PUBLIC_VISIBILITY = ["public"];
+
+// Fields projected into the search index. Keep this list aligned with the
+// search/discovery query layer so indexable fields and visibility constraints
+// stay in sync.
+const INDEXABLE_FIELDS = ["title", "description", "tags", "category", "authorAddress"];
 
 // Purchase statuses that grant an active entitlement for the buyer.
 const ACTIVE_STATUSES = ["confirmed", "settled", "completed"];
@@ -244,6 +257,123 @@ async function repairCache(db, sourceMap, cacheMap, { missing, extra, mismatched
 }
 
 /**
+ * Build the source-of-truth search index from `materials`, applying visibility
+ * constraints. Only records whose visibility is public are indexable for
+ * unauthorized (anonymous) search. Restricted records are intentionally
+ * excluded so they cannot leak into unauthorized results.
+ *
+ * Returns a map of `${materialId}` -> { materialId, visibility, fields, updatedAt }.
+ */
+async function buildSourceSearchIndex(db) {
+  const cursor = db.collection(MATERIALS).find({
+    deletedAt: { $exists: false },
+    visibility: { $in: PUBLIC_VISIBILITY },
+  });
+  const map = new Map();
+  for await (const doc of cursor) {
+    const materialId = String(doc.materialId || doc._id?.toString());
+    const fields = {};
+    for (const field of INDEXABLE_FIELDS) {
+      if (doc[field] !== undefined) fields[field] = doc[field];
+    }
+    map.set(materialId, {
+      materialId,
+      visibility: String(doc.visibility),
+      fields,
+      updatedAt: doc.updatedAt ? new Date(doc.updatedAt).getTime() : null,
+    });
+  }
+  return map;
+}
+
+/** Load the current search index as a map of `${materialId}` -> { visibility, updatedAt }. */
+async function loadSearchIndexMap(db) {
+  const cursor = db.collection(SEARCH_INDEX).find({});
+  const map = new Map();
+  for await (const doc of cursor) {
+    const materialId = String(doc.materialId || doc._id?.toString());
+    map.set(materialId, {
+      visibility: doc.visibility ? String(doc.visibility) : null,
+      updatedAt: doc.updatedAt ? new Date(doc.updatedAt).getTime() : null,
+    });
+  }
+  return map;
+}
+
+/**
+ * Compare the source-of-truth search index against the live index.
+ * Classifies:
+ *   - missing: public material not present in the index (should be indexed)
+ *   - stale: indexed entry whose source material is no longer public/deleted
+ *   - mismatched: present in both but visibility disagrees
+ */
+function diffSearchIndex(sourceMap, indexMap) {
+  const missing = [];
+  const stale = [];
+  const mismatched = [];
+
+  for (const [materialId, source] of sourceMap) {
+    const indexed = indexMap.get(materialId);
+    if (!indexed) {
+      missing.push({ materialId, visibility: source.visibility });
+    } else if (indexed.visibility !== source.visibility) {
+      mismatched.push({ materialId, expected: source.visibility, actual: indexed.visibility });
+    }
+  }
+
+  for (const [materialId, indexed] of indexMap) {
+    if (!sourceMap.has(materialId)) {
+      stale.push({ materialId, visibility: indexed.visibility });
+    }
+  }
+
+  return { missing, stale, mismatched };
+}
+
+/**
+ * Repair the search index: remove stale/unauthorized entries and (re)insert
+ * entries for public materials. This is the stale-index repair job.
+ */
+async function repairSearchIndex(db, sourceMap, diffResult) {
+  if (DRY_RUN) {
+    log("info", "DRY_RUN=true — skipping search index repair", {
+      toRemove: diffResult.stale.length + diffResult.mismatched.length,
+      toInsert: diffResult.missing.length + diffResult.mismatched.length,
+    });
+    return { removed: 0, inserted: 0 };
+  }
+
+  const staleIds = [...diffResult.stale.map((s) => s.materialId), ...diffResult.mismatched.map((m) => m.materialId)];
+  if (staleIds.length) {
+    await db.collection(SEARCH_INDEX).deleteMany({ materialId: { $in: staleIds } });
+  }
+
+  const toInsert = [...diffResult.missing.map((m) => m.materialId), ...diffResult.mismatched.map((m) => m.materialId)];
+  let inserted = 0;
+  const batch = [];
+  for (const materialId of toInsert) {
+    const src = sourceMap.get(materialId);
+    if (!src) continue;
+    batch.push({
+      materialId: src.materialId,
+      visibility: src.visibility,
+      ...src.fields,
+      source: "repair",
+      repairedAt: new Date(),
+      updatedAt: new Date(),
+    });
+    if (batch.length >= 500) {
+      inserted += (await db.collection(SEARCH_INDEX).insertMany(batch)).insertedCount;
+      batch.length = 0;
+    }
+  }
+  if (batch.length) {
+    inserted += (await db.collection(SEARCH_INDEX).insertMany(batch)).insertedCount;
+  }
+  return { removed: staleIds.length, inserted };
+}
+
+/**
  * Write the rebuilt entitlement cache. Under `--rebuild`, clears the collection
  * first and repopulates from the source of truth.
  */
@@ -288,6 +418,31 @@ try {
 
   const { map: sourceMap, sourceCount } = await buildSourceEntitlements(db);
   log("info", "Built source-of-truth entitlements from purchases", { sourceCount, total: sourceMap.size });
+
+  if (REPAIR_SEARCH_INDEX) {
+    const sourceIndex = await buildSourceSearchIndex(db);
+    const liveIndex = await loadSearchIndexMap(db);
+    const searchDiff = diffSearchIndex(sourceIndex, liveIndex);
+    const searchReport = {
+      sourceIndexable: sourceIndex.size,
+      liveIndexed: liveIndex.size,
+      missing: searchDiff.missing.length,
+      stale: searchDiff.stale.length,
+      mismatched: searchDiff.mismatched.length,
+      ok: searchDiff.missing.length === 0 && searchDiff.stale.length === 0 && searchDiff.mismatched.length === 0,
+    };
+    log("info", "Search index verification report", searchReport);
+
+    if (!searchReport.ok) {
+      for (const item of searchDiff.stale.slice(0, 20)) log("error", "Stale search index entry (source hidden/deleted/revoked)", { item });
+      for (const item of searchDiff.missing.slice(0, 20)) log("error", "Missing search index entry (public material not indexed)", { item });
+      for (const item of searchDiff.mismatched.slice(0, 20)) log("error", "Mismatched search index visibility", { item });
+      const repairResult = await repairSearchIndex(db, sourceIndex, searchDiff);
+      log("info", "Search index repair complete", repairResult);
+    } else {
+      log("info", "Search index verification passed — no stale or missing entries");
+    }
+  }
 
   if (REBUILD) {
     if (DRY_RUN) {
