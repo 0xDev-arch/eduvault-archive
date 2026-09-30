@@ -11,6 +11,10 @@ Clients and frontends must use these codes rather than parsing prose error
 messages. Webhook signature verification and retry semantics are described
 in [`docs/webhook-signatures.md`](webhook-signatures.md).
 
+Canonical serialization and strict input normalization rules for signed,
+hashed, compared, or settled payloads are defined in
+[`docs/canonical-serialization.md`](canonical-serialization.md).
+
 ## Collections
 
 ### `users`
@@ -176,6 +180,12 @@ Response:
 
 - inserted material record with `id`.
 
+Signed and hashed material payloads are canonicalized before persistence or
+signature verification. Equivalent payloads must produce the same canonical
+representation; non-canonical input is normalized or rejected consistently.
+See [`docs/canonical-serialization.md`](canonical-serialization.md) for the
+ordering, whitespace, casing, numeric-precision, and legacy-record rules.
+
 ### `POST /api/materials/import`
 
 Auth: `auth_token` cookie; the caller must have a wallet address.
@@ -258,6 +268,11 @@ Response:
 
 - persisted purchase record or an existing confirmed purchase when the buyer already owns the item.
 
+`signedXdr` and any other signed or settled payloads are canonicalized before
+verification and settlement. Non-canonical input is normalized or rejected
+consistently, and legacy records are handled via the compatibility rules in
+[`docs/canonical-serialization.md`](canonical-serialization.md).
+
 ### `GET /api/entitlements`
 
 Response:
@@ -311,6 +326,15 @@ Response:
 - Apply rate limits to public and sensitive route families.
 - Emit structured audit logs for validation failures, rate-limit blocks, upload failures, auth failures, purchase sync, and indexer anomalies.
 - Add focused tests for validation, rate limiting, and indexer idempotency when changing backend behavior.
+
+### Canonical Serialization and Normalization
+
+- Signed, hashed, compared, or settled payloads must be canonicalized before
+  use so equivalent input cannot produce inconsistent signatures or records.
+- Canonicalization covers key ordering, whitespace, casing, and numeric
+  precision; non-canonical input is normalized or rejected consistently.
+- Compatibility handling for existing records is required when canonical
+  rules change. See [`docs/canonical-serialization.md`](canonical-serialization.md).
 
 ## Stable Error Codes
 
