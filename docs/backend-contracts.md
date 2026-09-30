@@ -3,11 +3,11 @@
 
 This document defines the canonical backend shapes for EduVault contributors. MongoDB keeps application metadata and query models, while Soroban and Stellar events remain the source of truth for payment and entitlement state once the Stellar milestone is active.
 
-The canonical Soroban storage boundary, normalized event names, and entitlement query rules are defined in [`docs/soroban-contract-architecture.md`](soroban-contract-architecture.md).
+The canonical Soroban storage boundary, normalized event names, and entitlement query rules are defined in [`docs/soroban-contract-architecture.md](soroban-contract-architecture.md).
 
-The **stable error-code taxonomy** for all failure paths (purchase, refund,
+The **Stable error-code taxonomy** for all failure paths (purchase, refund,
 entitlement, download, storage, indexer, webhook, auth, contract, and input
-validation) is defined in [`docs/API_REFERENCE.md`](API_REFERENCE.md).
+validation) is defined in [`docs/API_REFERENCE.md](API_REFERENCE.md).
 Clients and frontends must use these codes rather than parsing prose error
 messages. Webhook signature verification and retry semantics are described
 in [`docs/webhook-signatures.md`](webhook-signatures.md).
@@ -112,7 +112,7 @@ Durable indexer checkpoint state.
 Required fields:
 
 - `_id`: source key, for example `stellar:events`.
-- `source`, `cursor`, `lastLedger`, `updatedAt`.
+- `source`, `cursor`, lastLedge`, `updatedAt`.
 
 ### `sync_events`
 
