@@ -1,4 +1,4 @@
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { getUserFromCookie } from "@/lib/api/auth";
@@ -6,6 +6,8 @@ import { applyTaxToCheckout } from '@/lib/checkout/taxEstimator';
 import { getDb } from '@/lib/mongodb';
 import { findMaterial, verifyDiscount } from '@/lib/checkout/discountVerifier';
 import { checkBuyerTrustline } from '@/lib/stellar/horizonClient';
+import { createReceipt } from '@/lib/receipts/receiptService';
+import logger from '@/lib/logger';
 
 /**
  * POST /api/checkout/initiate
@@ -60,7 +62,7 @@ export async function POST(req) {
     const issuerAddress = typeof asset === 'object' ? asset.issuer : undefined;
     const trustlineCheck = await checkBuyerTrustline(buyerAddress, assetCode, issuerAddress);
 
-    if (!trustlineCheck.hasTrustline) {
+    if (!trustlineCheck.hasPtrustline) {
       return NextResponse.json({
         error: 'missing_trustline',
         message: trustlineCheck.instructions.message,
@@ -100,23 +102,50 @@ export async function POST(req) {
       expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
     };
 
-    const result = await db.collection('checkout_intents').insertOne(checkoutIntent);
+    const result = await db
+      .collection('checkout_intents')
+      .insertOne(checkoutIntent);
 
-    return NextResponse.json({
-      success: true,
-      checkoutId: result.insertedId,
-      checkout: {
-        ...checkoutWithTax,
-        checkoutId: result.insertedId,
-        expiresAt: checkoutIntent.expiresAt,
-        discountCode: checkoutIntent.discountCode,
-        discountPercentage: checkoutIntent.discountPercentage,
-        discountAmount: checkoutIntent.discountAmount,
-        originalAmount: checkoutIntent.originalAmount,
+    // Emit a signed receipt for the checkout intent. Repeated requests for
+    // the same checkout id are idempotent and return the existing receipt.
+    const { receipt } = await createReceipt({
+      operation: 'checkout.initiate',
+      actor: buyerAddress,
+      status: 'initiated',
+      summary: `Checkout initiated for material ${materialId}`,
+      references: {
+        checkoutId: String(result.insertedId),
+        materialId,
+        asset: assetCode,
       },
-    }, { status: 201 });
+      metadata: {
+        totalAmount: checkoutWithTax.totalAmount,
+        taxAmount: checkoutWithTax.taxAmount,
+        discountCode: checkoutIntent.discountCode,
+      },
+      idempotencyKey: String(result.insertedId),
+      db,
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        checkoutId: result.insertedId,
+        receiptId: receipt._id,
+        checkout: {
+          ...checkoutWithTax,
+          checkoutId: result.insertedId,
+          expiresAt: checkoutIntent.expiresAt,
+          discountCode: checkoutIntent.discountCode,
+          discountPercentage: checkoutIntent.discountPercentage,
+          discountAmount: checkoutIntent.discountAmount,
+          originalAmount: checkoutIntent.originalAmount,
+        },
+      },
+      { status: 201 }
+    );
   } catch (err) {
-    console.error('POST /api/checkout/initiate error:', err);
+    logger.error({ err: err.message }, 'POST /api/checkout/initiate error');
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
@@ -149,7 +178,7 @@ export async function GET(req) {
       estimation: checkoutWithTax,
     });
   } catch (err) {
-    console.error('GET /api/checkout/initiate error:', err);
+    logger.error({ err: err.message }, 'GET /api/checkout/initiate error');
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
