@@ -16,7 +16,7 @@ import {
 import { sendSuspensionEmail, sendReactivationEmail } from '@/lib/email/suspensionNotifier'
 import { appendAuditRecord } from '@/lib/backend/auditLedger'
 import { enqueueMaterialSearchProjection } from '@/lib/backend/materialSearchProjection'
-import { APPROVAL_SCOPES, validateApproval } from '@/lib/admin/approval'
+import { notify } from '@/lib/notifications/notifications'
 
 async function getAdminUser(request) {
   const cookieHeader = request.headers.get('cookie') || ''
@@ -163,6 +163,25 @@ export async function POST(request) {
       } catch (emailErr) {
         console.error(JSON.stringify({ level: 'error', event: 'suspension_email_failed', to: recipientEmail, error: emailErr.message, timestamp: new Date().toISOString() }))
       }
+    }
+
+    // #776: in-app notification for the account state change. The recipient is
+    // the target user's own id, so this is the one workflow that can notify
+    // directly (it already has the session user id, not just a wallet address).
+    // Gated behind the critical-lifecycle flag; failures never block the action.
+    try {
+      await notify(db, {
+        recipient: userId,
+        type: isSuspending ? 'account_suspended' : 'account_reactivated',
+        dedupeKey: `account:${action}:${userId}`,
+        title: isSuspending ? 'Account suspended' : 'Account reactivated',
+        message: isSuspending
+          ? `Your account was suspended. Reason: ${reason}. Contact support if you believe this is a mistake.`
+          : 'Your account was reactivated. You can now use all features again.',
+        link: isSuspending ? '/support' : '/dashboard',
+      })
+    } catch (notifyErr) {
+      console.error(JSON.stringify({ level: 'error', event: 'suspension_notification_failed', target: userId, error: notifyErr.message, timestamp: new Date().toISOString() }))
     }
 
     return NextResponse.json({
