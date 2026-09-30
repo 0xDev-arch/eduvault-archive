@@ -103,16 +103,6 @@ export function reportServiceState(name, newState, reason = '') {
     observabilityEvents.shift();
   }
 
-  console.log(JSON.stringify({
-    level: 'warn',
-    event: 'fallback_state_change',
-    service: name,
-    from: previousState,
-    to: newState,
-    reason: reason || 'manual-report',
-    timestamp: now,
-  }));
-
   return { changed: true, from: previousState, to: newState, event };
 }
 
@@ -260,15 +250,7 @@ export function withFallback(serviceName, operation, handler) {
     try {
       const result = await handler(...args);
       return { ok: true, result, degraded: fallback.action === FALLBACK_ACTION.DEGRADE };
-    } catch (err) {
-      console.log(JSON.stringify({
-        level: 'warn',
-        event: 'fallback_handler_error',
-        service: serviceName,
-        operation,
-        error: err.message,
-        timestamp: new Date().toISOString(),
-      }));
+    } catch {
       return {
         ok: false,
         error: fallback.message,

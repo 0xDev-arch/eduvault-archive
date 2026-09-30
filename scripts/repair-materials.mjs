@@ -23,10 +23,8 @@
  *   DRY_RUN      — set to "true" to force dry-run
  */
 
-import { MongoClient } from "mongodb";
-
 function log(level, message, extra = {}) {
-  console.log(JSON.stringify({ level, message, timestamp: new Date().toISOString(), ...extra }));
+  process.stdout.write(`${JSON.stringify({ level, message, timestamp: new Date().toISOString(), ...extra })}\n`);
 }
 
 export async function findInconsistencies(db, targetId = null) {
