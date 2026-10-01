@@ -5,6 +5,7 @@ import { getUserFromCookie } from '@/lib/api/auth';
 import { verifyWalletAddressMatch } from '@/lib/stellar/checkoutService';
 import { createReceipt } from '@/lib/receipts/receiptService';
 import { acquireLock, releaseLock } from '@/lib/concurrency/lock';
+import { normalizeWalletAddress } from '@/lib/canonicalization';
 import logger from '@/lib/logger';
 
 // NOTE: The checkout receipt UI lives in components/modals/CheckoutReceiptModal.jsx.
@@ -19,11 +20,15 @@ import logger from '@/lib/logger';
  * the address stored in the user's JWT session.  Blocks submission and
  * returns a 403 if the addresses differ, defending against address-spoofing.
  *
- * Concurrency:
+* Concurrency:
  *   The warnings counter is mutable session state. Simultaneous mismatch
  *   requests for the same user must not lose updates (otherwise the
  *   clear-session threshold could be evaded). We serialize per-user mutation
  *   with a distributed lock and perform an idlempotent read-modify-write.
+ *
+ * Both the session address and the payload address are normalized to the
+ * canonical Stellar G-address form before comparison, so equivalent input
+ * (casing, whitespace, prefix variants) cannot produce inconsistent results.
  *
  * Body:
  *   { payloadAddress: string, requestId?: string }
@@ -44,7 +49,7 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Missing payloadAddress in request body' }, { status: 400 });
     }
 
-    // Canonicalize the payload address before comparison. This normalizes
+// Canonicalize the payload address before comparison. This normalizes
     // casing, whitespace, and key ordering so equivalent payloads map to the
     // same canonical output. Non-canonical inputs are normalized consistently.
     let canonicalPayloadAddress;
@@ -65,7 +70,26 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Session wallet address not found' }, { status: 400 });
     }
 
-// Serialize per-user mutation of the warnings counter. Without this lock,
+// Normalize both addresses to the canonical Stellar G-address form.
+    // Non-canonical input is either normalized (casing, whitespace, prefix)
+    // or rejected consistently with a 400.
+    const sessionAddress = normalizeWalletAddress(sessionAddressRaw);
+    const normalizedPayloadAddress = normalizeWalletAddress(payloadAddress);
+
+    if (!sessionAddress) {
+      logger.warn({ userId: user.id }, 'Checkout verify: session wallet address is not canonical');
+      return NextResponse.json({ error: 'Session wallet address is not canonical' }, { status: 400 });
+    }
+
+    if (!normalizedPayloadAddress) {
+      logger.warn(
+        { userId: user.id, payloadAddress },
+        'Checkout verify: payload wallet address is not canonical'
+      );
+      return NextResponse.json({ error: 'payloadAddress is not a canonical Stellar address' }, { status: 400 });
+    }
+
+    // Serialize per-user mutation of the warnings counter. Without this lock,
     // concurrent mismatches can lose updates and evade the clear-session threshold.
     const lockKey = `checkout:verify:${user.id}`;
     const lock = await acquireLock(lockKey);
@@ -82,14 +106,15 @@ export async function POST(req) {
     // Mutable session state (warnings counter) stored on the user object.
     // In production this would be persisted via Redis / signed cookie update.
     const sessionState = user.sessionState ?? {};
-    const result = verifyWalletAddressMatch({ sessionAddress, payloadAddress, sessionState });
-
-    const actor = user.sub || user.id || sessionAddress;
-    const idempotencyKey = `${actor}:${payloadAddress}:${result.valid ? 'valid' : 'tampered'}`;
+    const result = verifyWalletAddressMatch({
+      sessionAddress,
+      payloadAddress: normalizedPayloadAddress,
+      sessionState,
+    });
 
     if (!result.valid) {
       logger.warn(
-        { sessionAddress, payloadAddress, warnings: result.warnings, clearSession: result.clearSession },
+        { sessionAddress, payloadAddress: normalizedPayloadAddress, warnings: result.warnings, clearSession: result.clearSession },
         'Checkout verify: wallet address mismatch blocked submission'
       );
     }
