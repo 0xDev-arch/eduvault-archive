@@ -349,6 +349,119 @@ components:
           type: string
           format: date-time
 
+IncidentInput:
+      type: object
+      description: Inputs for the incident impact calculator.
+      required: [incidentId, window]
+      properties:
+        incidentId:
+          type: string
+          description: Stable identifier for the incident being assessed.
+        window:
+          type: object
+          required: [start, end]
+          properties:
+            start:
+              type: string
+              format: date-time
+            end:
+              type: string
+              format: date-time
+        affectedUsers:
+          type: array
+          description: Wallet addresses of users believed to be affected.
+          items:
+            type: string
+        affectedRecords:
+          type: array
+          description: Material ids believed to be affected.
+          items:
+            type: string
+        affectedOperations:
+          type: array
+          description: Operation types that were disrupted.
+          items:
+            type: string
+            enum: [purchase, import, download, entitlement]
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        redact:
+          type: boolean
+          default: true
+          description: When true, return the shareable view with sensitive details redacted.
+
+    IncidentImpactSummary:
+      type: object
+      required: [users, records, operations, severity]
+      properties:
+        users:
+          type: integer
+        records:
+          type: integer
+        operations:
+          type: integer
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+
+    IncidentImpactResult:
+      type: object
+      required: [incidentId, window, summary, internal, shareable]
+      properties:
+        incidentId:
+          type: string
+        window:
+          type: object
+          required: [start, end]
+          properties:
+            start:
+              type: string
+              format: date-time
+            end:
+              type: string
+              format: date-time
+        summary:
+          $ref: "#/components/schemas/IncidentImpactSummary"
+        internal:
+          type: object
+          description: Full detail for maintainers. Only included when redact is false.
+          properties:
+            affectedUsers:
+              type: array
+              items:
+                type: string
+            affectedRecords:
+              type: array
+              items:
+                type: string
+            affectedOperations:
+              type: array
+              items:
+                type: string
+        shareable:
+          type: object
+          description: Redacted view safe for external communication.
+          required: [incidentId, window, summary]
+          properties:
+            incidentId:
+              type: string
+            window:
+              type: object
+              required: [start, end]
+              properties:
+                start:
+                  type: string
+                  format: date-time
+                end:
+                  type: string
+                  format: date-time
+            summary:
+              $ref: "#/components/schemas/IncidentImpactSummary"
+            note:
+              type: string
+              description: Human-readable explanation of the redaction.
+
     ReceiptPayload:
       type: object
       description: |
@@ -442,7 +555,6 @@ components:
         reason:
           type: string
           description: Present when valid is false
-
   responses:
     Unauthorized:
       description: Not authenticated
@@ -457,7 +569,7 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     RateLimited:
-      description: Too many requests
+      description: Toot many requests
       content:
         application/json:
           schema:
@@ -484,3 +596,125 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Material"
+"401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      summary: Create a new material listing
+      operationId: createMaterial
+      tags: [Materials]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialInput"
+      responses:
+        "201":
+          description: Material created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/materials/import:
+    post:
+      summary: Validate or import structured material records
+      operationId: importMaterials
+      tags: [Materials]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format:
+                  type: string
+                  enum: [json, csv]
+                dryRun:
+                  type: boolean
+                records:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/MaterialImportRecord"
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/MaterialImportRecord"
+      responses:
+        "200":
+          description: Dry-run plan with no errors, or a commit where every row was already imported. Dry runs never write.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialImportResponse"
+        "201":
+          description: Every planned create/update was written
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialImportCommitResponse"
+        "207":
+          description: Partial import — some writes failed; see failedRows and rollback
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialImportCommitResponse"
+        "400":
+          description: Invalid or duplicate rows (plan included, nothing written), or a malformed payload
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/MaterialImportResponse"
+                  - $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/incidents/impact:
+    post:
+      summary: Calculate incident impact across users, records, operations, and time windows
+      operationId: calculateIncidentImpact
+      tags: [Incidents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentInput"
+      responses:
+        "200":
+          description: Deterministic impact report with internal and shareable fields.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentImpactResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"

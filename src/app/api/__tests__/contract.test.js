@@ -1,1 +1,303 @@
-Ly8gQHZpdGVzdC1lbnZpcm9ubWVudCBub2RlCi8vCi8vICM3OTM6IGNvbnRyYWN0IGRyaWZ0IHRlc3RzLiBSZWFsIHJvdXRlIGhhbmRsZXJzIHJ1biBhZ2FpbnN0IE1vbmdvCi8vICgobW9uZ29kYi1tZW1vcnktc2VydmVyIHZpYSB2aXRlc3QgZ2xvYmFsU2V0dXApIGFuZCBldmVyeSByZXNwb25zZSBib2R5IGlzCi8vIGNoZWNrZWQgYWdhaW5zdCB0aGUgc2NoZW1hIGRvY3VtZW50ZWQgZm9yIHRoYXQgc3RhdHVzIGluIGRvY3Mvb3BlbmFwaS55YW1sLgovLyBSZW1vdmluZyBvciByZXR5cGluZyBhIGRvY3VtZW50ZWQgZmllbGQsIG9yIGNoYW5naW5nIGEgc3RhdHVzIGNvZGUgd2l0aG91dAovLyB1cGRhdGluZyB0aGUgc3BlYywgZmFpbHMgaGVyZS4KaW1wb3J0IHsgZGVzY3JpYmUsIGl0LCBleHBlY3QsIGJlZm9yZUFsbCwgYmVmb3JlRWFjaCwgYWZ0ZXJFYWNoLCB2aSB9IGZyb20gJ3ZpdGVzdCc7CmltcG9ydCB7IHJlYWRGaWxlU3luYyB9IGZyb20gJ25vZGU6ZnMnOwppbXBvcnQgeyBwYXJzZSB9IGZyb20gJ3lhbWwnOwppbXBvcnQgeyBDb2xsZWN0aW9uIH0gZnJvbSAnbW9uZ29kYic7Cgpjb25zdCB7IGN1cnJlbnRVc2VyIH0gPSB2aS5ob2lzdGVkKCgpID0+ICh7IGN1cnJlbnRVc2VyOiB7IHZhbHVlOiBudWxsIH0gfSkpOwoKdmkubW9jaygnQC9saWIvYXBpL2F1dGgnLCAoKSA9PiAoeyBnZXRVc2VyRnJvbUNvb2tpZTogdmkuZm4oYXN5bmMgKCkgPT4gY3VycmVudFVzZXIudmFsdWUpIH0pKTsKdmkubW9jaygnQC9saWIvYXBpL2hhcmRlbmluZycsICgpID0+ICh7IHdpdGhBcGlIYXJkZW5pbmc6IHZpLmZuKChyZXEsIG9wdGlvbnMsIGhhbmRsZXIpID0+IGhhbmRsZXIoKSkgfSkpOwp2aS5tb2NrKCdAL2xpYi9hcGkvYXVkaXQnLCAoKSA9PiAoeyBhdWRpdExvZzogdmkuZm4oKSB9KSk7CnZpLm1vY2soJ0AvbGliL2NhY2hlL3JlZGlzJywgKCkgPT4gKHsgaW52YWxpZGF0ZUNhdGFsb2dDYWNoZTogdmkuZm4oKSB9KSk7CgppbXBvcnQgeyBnZXREYiB9IGZyb20gJ0AvbGliL21vbmdvZGInOwppbXBvcnQgeyBSRVFVSVJFRF9JTkRFWEVTIH0gZnJvbSAnQC9saWIvYmFja2VuZC9zY2hlbWFDb250cmFjdHMnOwppbXBvcnQgeyBQT1NUIGFzIGltcG9ydE1hdGVyaWFscyB9IGZyb20gJy4uL21hdGVyaWFscy9pbXBvcnQvcm91dGUnOwppbXBvcnQgeyBHRVQgYXMgbGlzdE5vdGlmaWNhdGlvbnMsIFBBVENIIGFzIG1hcmtSZWFkIH0gZnJvbSAnLi4vbm90aWZpY2F0aW9ucy9yb3V0ZSc7CmltcG9ydCB7IFBPU1QgYXMgY3JlYXRlUmVjZWlwdCB9IGZyb20gJy4uL3JlY2VpcHRzL3JvdXRlJzsKaW1wb3J0IHsgR0VUIGFzIGdldFJlY2VpcHQgfSBmcm9tICcuLi9yZWNlaXB0cy9baWRdL3JvdXRlJzsKCmNvbnN0IHNwZWMgPSBwYXJzZShyZWFkRmlsZVN5bmMobmV3IFVSTCgnLi4vLi4vLi4vLi4vZG9jcy9vcGVuYXBpLnlhbWwnLCBpbXBvcnQubWV0YS51cmwpLCAndXRmOCcpKTsKCmZ1bmN0aW9uIHJlc29sdmUoc2NoZW1hKSB7CiAgbGV0IHMgPSBzY2hlbWE7CiAgd2hpbGUgKHM/LiRyZWYpIHMgPSBzLiRyZWYucmVwbGFjZSgnIy8nLCAnJykuc3BsaXQoJy8nKS5yZWR1Y2UoKG5vZGUsIGtleSkgPT4gbm9kZVtrZXldLCBzcGVjKTsKICByZXR1cm4gczsKfQoKZnVuY3Rpb24gdHlwZU9mKHZhbHVlKSB7CiAgaWYgKHZhbHVlID09PSBudWxsKSByZXR1cm4gJ251bGwnOwogIGlmIChBcnJheS5pc0FycmF5KHZhbHVlKSkgcmV0dXJuICdhcnJheSc7CiAgaWYgKE51bWJlci5pc0ludGVnZXIodmFsdWUpKSByZXR1cm4gJ2ludGVnZXInOwogIHJldHVybiB0eXBlb2YgdmFsdWU7Cn0KCi8vIE1pbmltYWwgSlNPTiBTY2hlbWEgc3Vic2V0IHVzZWQgYnkgdGhlIHNwZWM6ICRyZWYsIGFsbE9mLCBvbmVPZiwgdHlwZQovLyAoaW5jbC4gYXJyYXlzKSwgcmVxdWlyZWQsIHByb3BlcnRpZXMsIGl0ZW1zLCBlbnVtLgpmdW5jdGlvbiB2YWxpZGF0ZSh2YWx1ZSwgcmF3U2NoZW1hLCBwYXRoID0gJyQnKSB7CiAgY29uc3Qgc2NoZW1hID0gcmVzb2x2ZShyYXdTY2hlbWEpOwogIGlmICghc2NoZW1hKSByZXR1cm4gW107CiAgaWYgKHNjaGVtYS5hbGxPZikgcmV0dXJuIHNjaGVtYS5hbGxPZi5mbGF0TWFwKChzKSA9PiB2YWxpZGF0ZSh2YWx1ZSwgcywgcGF0aCkpOwogIGlmIChzY2hlbWEub25lT2YpIHsKICAgIGNvbnN0IHJlc3VsdHMgPSBzY2hlbWEub25lT2YubWFwKChzKSA9PiB2YWxpZGF0ZSh2YWx1ZSwgcywgcGF0aCkpOwogICAgcmV0dXJuIHJlc3VsdHMuc29tZSgocikgPT4gci5sZW5ndGggPT09IDApID8gW10gOiBbYCR7cGF0aH06IG1hdGNoZXMgbm8gb25lT2YgYnJhbmNoICgke3Jlc3VsdHMuZmxhdCgpLmpvaW4oJzsgJyl9KWBdOwogIH0KICBjb25zdCBlcnJvcnMgPSBbXTsKICBpZiAoc2NoZW1hLnR5cGUpIHsKICAgIGNvbnN0IGFsbG93ZWQgPSBbXS5jb25jYXQoc2NoZW1hLnR5cGUpOwogICAgY29uc3QgYWN0dWFsID0gdHlwZU9mKHZhbHVlKTsKICAgIGlmICghYWxsb3dlZC5pbmNsdWRlcyhhY3R1YWwpICYmICEoYWN0dWFsID09PSAnaW50ZWdlcicgJiYgYWxsb3dlZC5pbmNsdWRlcygnbnVtYmVyJykpKSB7CiAgICAgIHJldHVybiBbYCR7cGF0aH06IGV4cGVjdGVkICR7YWxsb3dlZC5qb2luKCd8Jyl9LCBnb3QgJHthY3R1YWx9YF07CiAgICB9CiAgfQogIGlmIChzY2hlbWEuZW51bSAmJiAhc2NoZW1hLmVudW0uaW5jbHVkZXModmFsdWUpKSBlcnJvcnMucHVzaChgJHtwYXRofTogJHtKU09OLnN0cmluZ2lmeSh2YWx1ZSl9IG5vdCBpbiBlbnVtYCk7CiAgaWYgKHZhbHVlICYmIHR5cGVvZiB2YWx1ZSA9PT0gJ29iamVjdCcgJiYgIUFycmF5LmlzQXJyYXkodmFsdWUpKSB7CiAgICBmb3IgKGNvbnN0IGtleSBvZiBzY2hlbWEucmVxdWlyZWQgfHwgW10pIHsKICAgICAgaWYgKCEoa2V5IGluIHZhbHVlKSkgZXJyb3JzLnB1c2goYCR7cGF0aH0uJHtrZXl9OiByZXF1aXJlZCBidXQgbWlzc2luZ2ApOwogICAgfQogICAgZm9yIChjb25zdCBba2V5LCBzdWJdIG9mIE9iamVjdC5lbnRyaWVzKHNjaGVtYS5wcm9wZXJ0aWVzIHx8IHt9KSkgewogICAgICBpZiAodmFsdWVba2V5XSAhPT0gdW5kZWZpbmVkKSBlcnJvcnMucHVzaCguLi52YWxpZGF0ZSh2YWx1ZVtrZXldLCBzdWIsIGAke3BhdGh9LiR7a2V5fWApKTsKICAgIH0KICB9CiAgaWYgKEFycmF5LmlzQXJyYXkodmFsdWUpICYmIHNjaGVtYS5pdGVtcykgewogICAgdmFsdWUuZm9yRWFjaCgoaXRlbSwgaSkgPT4gZXJyb3JzLnB1c2goLi4udmFsaWRhdGUoaXRlbSwgc2NoZW1hLml0ZW1zLCBgJHtwYXRofVske2l9XWApKSk7CiAgfQogIHJldHVybiBlcnJvcnM7Cn0KCmFzeW5jIGZ1bmN0aW9uIGV4cGVjdENvbnRyYWN0KHJlcywgcm91dGUsIG1ldGhvZCkgewogIGNvbnN0IG9wZXJhdGlvbiA9IHNwZWMucGF0aHNbcm91dGVdW21ldGhvZF07CiAgY29uc3QgZG9jdW1lbnRlZCA9IG9wZXJhdGlvbi5yZXNwb25zZXNbU3RyaW5nKHJlcy5zdGF0dXMpXTsKICBleHBlY3QoZG9jdW1lbnRlZCwgYCR7bWV0aG9kLnRvVXBwZXJDYXNlKCl9ICR7cm91dGV9IHJldHVybmVkIHVuZG9jdW1lbnRlZCBzdGF0dXMgJHtyZXMuc3RhdHVzfWApLnRvQmVEZWZpbmVkKCk7CiAgY29uc3QgYm9keSA9IGF3YWl0IHJlcy5qc29uKCk7CiAgY29uc3Qgc2NoZW1hID0gcmVzb2x2ZShkb2N1bWVudGVkKS5jb250ZW50WydhcHBsaWNhdGlvbi9qc29uJ10uc2NoZW1hOwogIGV4cGVjdCh2YWxpZGF0ZShib2R5LCBzY2hlbWEpKS50b0VxdWFsKFtdKTsKICByZXR1cm4gYm9keTsKfQoKY29uc3QganNvblJlcXVlc3QgPSAodXJsLCBtZXRob2QsIGJvZHkpID0+IG5ldyBSZXF1ZXN0KGBodHRwOi8vbG9jYWxob3N0JHt1cmx9YCwgewogIG1ldGhvZCwKICBoZWFkZXJzOiB7ICdDb250ZW50LVR5cGUnOiAnYXBwbGljYXRpb24vanNvbicgfSwKICBib2R5OiBib2R5ID09PSB1bmRlZmluZWQgPyB1bmRlZmluZWQgOiBKU09OLnN0cmluZ2lmeShib2R5KSwKfSk7Cgpjb25zdCBydW5JbXBvcnQgPSAoYm9keSkgPT4gaW1wb3J0TWF0ZXJpYWxzKGpzb25SZXF1ZXN0KCcvYXBpL21hdGVyaWFscy9pbXBvcnQnLCAnUE9TVCcsIGJvZHkpKTsKCmNvbnN0IHJ1bkNyZWF0ZVJlY2VpcHQgPSAoYm9keSkgPT4gY3JlYXRlUmVjZWlwdChqc29uUmVxdWVzdCgnL2FwaS9yZWNlaXB0cycsICdQT1NUJywgYm9keSkpOwpjb25zdCBydW5HZXRSZWNlaXB0ID0gKGlkKSA9PiBnZXRSZWNlaXB0KGpzb25SZXF1ZXN0KGAvYXBpL3JlY2VpcHRzLyR7aWR9YCwgJ0dFVCcpLCB7IHBhcmFtczogeyBpZCB9IH0pOwoKbGV0IGRiOwpsZXQgdXNlckFkZHJlc3M7CgpiZWZvcmVBbGwoYXN5bmMgKCkgPT4gewogIGRiID0gYXdhaXQgZ2V0RGIoKTsKICBmb3IgKGNvbnN0IGNvbGxlY3Rpb24gb2YgWydtYXRlcmlhbHMnLCAnbm90aWZpY2F0aW9ucycsICdyZWNlaXB0cyddKSB7CiAgICBmb3IgKGNvbnN0IHsga2V5cywgb3B0aW9ucyB9IG9mIFJFUVVJUkVEX0lOREVYRVMuY29sbGVjdGlvbiB8fCBbXSkgewogICAgICBhd2FpdCBkYi5jb2xsZWN0aW9uKGNvbGxlY3Rpb24pLmNyZWF0ZUluZGV4KGtleXMsIG9wdGlvbnMpOwogICAgfQogIH0KfSk7CgpiZWZvcmVFYWNoKCgpID0+IHsKICB1c2VyQWRkcmVzcyA9IGBHTEVTVCR7TWF0aC5yYW5kb20oKS50b1N0cmluZygzNikuc2xpY2UoMikudG9VcHBlckNhc2UoKX1gOwogIGN1cnJlbnRVc2VyLnZhbHVlID0geyBzdWI6IGB1c2VyLSR7dXNlckFkZHJlc3N9YCwgd2FsbGV0QWRkcmVzczogdXNlckFkZHJlc3MgfTsKfSk7CgphZnRlckVhY2goKCkgPT4gewogIHZpLnJlc3RvcmVBbGxNb2NrcygpOwp9KTsKCmNvbnN0IHJlY29yZHMgPSBbCiAgeyBleHRlcm5hbElkOiAnZXh0LTEnLCB0aXRsZTogJ0FsZ2VicmEgbm90ZXMnLCBzdG9yYWdlS2V5OiAnaXBmczovL2FsZ2VicmEnLCBwcmljZTogMiB9LAogIHsgZXh0ZXJuYWxJZDogJ2V4dC0yJywgdGl0bGU6ICdQaHlzaWNzIG5vdGVzJywgc3RvcmFnZUtleTogJ2lwZnM6Ly9waHlzaWNzJyB9LApdOwoKZGVzY3JpYmUoJ1BPU1QgL2FwaS9tYXRlcmlhbHMvaW1wb3J0IGNvbnRyYWN0JywgKCkgPT4gewogIGl0KCdkeSBydW4gcmV0dXJucyB0aGUgcGxhbiBhbmQgcGVyZm9ybXMgbm8gcGVyc2lzdGVudCB3cml0ZXMnLCBhc3luYyAoKSA9PiB7CiAgICBjb25zdCB3cml0ZU1ldGhvZHMgPSBbJ2luc2VydE9uZScsICdpbnNlcnRNYW55JywgJ3VwZGF0ZU9uZScsICd1cGRhdGVNYW55JywgJ2J1bGtXcml0ZScsICdyZXBsYWNlT25lJywgJ2RlbGV0ZU9uZScsICdkZWxldGVNYW55JywgJ2ZpbmRPbmVBbmRVcGRhdGUnXTsKICAgIGNvbnN0IHNwaWVzID0gd3JpdGVNZXRob2RzLm1hcCgobSkgPT4gdmkuc3B5T24oQ29sbGVjdGlvbi5wcm90b3R5cGUsIG0pKTsKCiAgICBjb25zdCByZXMgPSBhd2FpdCBydW5JbXBvcnQoeyBkcnlSdW46IHRydWUsIHJlY29yZHMgfSk7CiAgICBjb25zdCBib2R5ID0gYXdhaXQgZXhwZWN0Q29udHJhY3QocmVzLCAnL2FwaS9tYXRlcmlhbHMvaW1wb3J0JywgJ3Bvc3QnKTsKCiAgICBleHBlY3QocmVzLnN0YXR1cykudG9CZSgyMDApOwogICAgZXhwZWN0KGJvZHkuc3VtbWFyeSkudG9FcXVhbCh7IGNyZWF0ZTogMiwgdXBkYXRlOiAwLCBza2lwOiAwLCBlcnJvcjogMCB9KTsKICAgIGZvciAoY29uc3Qgc3B5IG9mIHNwaWVzKSBleHBlY3Qoc3B5KS5ub3QudG9IYXZlQmVlbkNhbGxlZCgpOwogIH0pOwoKICBpdCgnZHkgcnVuIHJlcG9ydHMgaW52YWxpZCBhbmQgZHVwbGljYXRlIHJvd3Mgd2l0aCA0MDAgYW5kIG5vIHdyaXRlcycsIGFzeW5jICgpID0+IHsKICAgIGNvbnN0IHJlcyA9IGF3YWl0IHJ1bkltcG9ydCh7CiAgICAgIGRyeVJ1bjogdHJ1ZSwKICAgICAgcmVjb3JkczogWy4uLnJlY29yZHMsIHsgZXh0ZXJuYWxJZDogJ2V4dC0xJywgdGl0bGU6ICdEdXAnLCBzdG9yYWdlS2V5OiAnaXBmczovL2R1cCcgfSwgeyB0aXRsZTogJycsIHN0b3JhZ2VLZXk6ICdpcGZzOi8veCcgfV0sCiAgICB9KTsKICAgIGNvbnN0IGJvZHkgPSBhd2FpdCBleHBlY3RDb250cmFjdChyZXMsICcvYXBpL21hdGVyaWFscy9pbXBvcnQnLCAncG9zdCcpOwoKICAgIGV4cGVjdChyZXMuc3RhdHVzKS50b0JlKDQwMCk7CiAgICBleHBlY3QoYm9keS5pbnZhbGlkUm93cy5tYXAoKHIpID0+IHIucm93KSkudG9FcXVhbChbMywgNF0pOwogICAgZXhwZWN0KGF3YWl0IGRiLmNvbGxlY3Rpb24oJ21hdGVyaWFscycpLmNvdW50RG9jdW1lbnRzKHsgdXNlckFkZHJlc3MgfSkpLnRvQmUoMCk7CiAgfSk7CgogIGl0KCdjb21taXQgd2l0aCBpbnZhbGlkIHJvd3Mgd3JpdGVzIG5vdGhpbmcnLCBhc3luYyAoKSA9PiB7CiAgICBjb25zdCByZXMgPSBhd2FpdCBydW5JbXBvcnQoeyBkcnlSdW46IGZhbHNlLCByZWNvcmRzOiBbLi4ucmVjb3JkcywgeyB0aXRsZTogJ05vIGtleScgfV0gfSk7CiAgICBhd2FpdCBleHBlY3RDb250cmFjdChyZXMsICcvYXBpL21hdGVyaWFscy9pbXBvcnQnLCAncG9zdCcpOwoKICAgIGV4cGVjdChyZXMuc3RhdHVzKS50b0JlKDQwMCk7CiAgICBleHBlY3QoYXdhaXQgZGIuY29sbGVjdGlvbignbWF0ZXJpYWxzJykuY291bnREb2N1bWVudHModyB1c2VyQWRkcmVzcyB9KSkudG9CZSgwKTsKICB9KTsKCiAgaXQoJ2NvbW1pdCBjcmVhdGVzLCB0aGVuIGEgcmVwZWF0ZWQgaW1wb3J0IGlzIGlkZW1wb3RlbnQsIHRoZW4gY2hhbmdlcyBiZWNvbWUgdXBkYXRlcycsIGFzeW5jICgpID0+IHsKICAgIGNvbnN0IGZpcnN0ID0gYXdhaXQgcnVuSW1wb3J0KHsgZHJ5UnVuOiBmYWxzZSwgcmVjb3JkcyB9KTsKICAgIGNvbnN0IGZpcnN0Qm9keSA9IGF3YWl0IGV4cGVjdENvbnRyYWN0KGZpcnN0LCAnL2FwaS9tYXRlcmlhbHMvaW1wb3J0JywgJ3Bvc3QnKTsKICAgIGV4cGVjdChmaXJzdC5zdGF0dXMpLnRvQmUoMjAxKTsKICAgIGV4cGVjdChmaXJzdEJvZHkpLnRvTWF0Y2hPYmplY3QoeyBjcmVhdGVkOiAyLCB1cGRhdGVkOiAwLCBpbXBvcnRlZDogMiwgZmFpbGVkUm93czogW10gfSk7CiAgICBleHBlY3QoYXdhaXQgZGIuY29sbGVjdGlvbignbWF0ZXJpYWxzJykuY291bnREb2N1bWVudHModyB1c2VyQWRkcmVzcywgaW1wb3J0QmF0Y2hJZDogZmlyc3RCb2R5LmltcG9ydEJhdGNoSWQgfSkpLnRvQmUoMik7CgogICAgY29uc3QgYWdhaW4gPSBhd2FpdCBydW5JbXBvcnQoeyBkcnlSdW46IGZhbHNlLCByZWNvcmRzIH0pOwogICAgY29uc3QgYWdhaW5Cb2R5ID0gYXdhaXQgZXhwZWN0Q29udHJhY3QoYWdhaW4sICcvYXBpL21hdGVyaWFscy9pbXBvcnQnLCAncG9zdCcpOwogICAgZXhwZWN0KGFnYWluLnN0YXR1cykudG9CZSgyMDApOwogICAgZXhwZWN0KGFnYWluQm9keS5zdW1tYXJ5KS50b0VxdWFsKHsgY3JlYXRlOiAwLCB1cGRhdGU6IDAsIHNraXA6IDIsIGVycm9yOiAwIH0pOwogICAgZXhwZWN0KGF3YWl0IGRiLmNvbGxlY3Rpb24oJ21hdGVyaWFscycpLmNvdW50RG9jdW1lbnRzKHsgdXNlckFkZHJlc3MgfSkpLnRvQmUoMik7CgogICAgY29uc3QgY2hhbmdlZCA9IGF3YWl0IHJ1bkltcG9ydCh7IGRyeVJ1bjogZmFsc2UsIHJlY29yZHM6IFt7IC4uLnJlY29yZHNbMF0sIHRpdGxlOiAnQWxnZWJyYSBub3RlcyB2MicgfSwgcmVjb3Jkc1sxXV0gfSk7CiAgICBjb25zdCBjaGFuZ2VkQm9keSA9IGF3YWl0IGV4cGVjdENvbnRyYWN0KGNoYW5nZWQsICcvYXBpL21hdGVyaWFscy9pbXBvcnQnLCAncG9zdCcpOwogICAgZXhwZWN0KGNoYW5nZWRCb2R5KS50b01hdGNoT2JqZWN0KHsgY3JlYXRlZDogMCwgdXBkYXRlZDogMSwgc3VtbWFyeTogeyB1cGRhdGU6IDEsIHNraXA6IDEgfSB9KTsKICAgIGNvbnN0IGhpc3RvcnkgPSBhd2FpdCBkYi5jb2xsZWN0aW9uKCdtYXRlcmlhbF9oaXN0b3J5JykuZmluZE9uZSh7IGNoYW5nZVJlYXNvbjogYGltcG9ydCAke2NoYW5nZWRCb2R5LmltcG9ydEJhdGNoSWR9YCB9KTsKICAgIGV4cGVjdChoaXN0b3J5LmNoYW5nZXMudGl0bGUpLnRvRXF1YWwoeyBmcm9tOiAnQWxnZWJyYSBub3RlcycsIHRvOiAnQWxnZWJyYSBub3RlcyB2MicgfSk7CgogICAgY29uc3QgaW5ib3ggPSBhd2FpdCBkYi5jb2xsZWN0aW9uKCdub3RpZmljYXRpb25zJykuZmluZCh7IHJlY2lwaWVudDogY3VycmVudFVzZXIudmFsdWUuc3ViIH0pLnRvQXJyYXkoKTsKICAgIGV4cGVjdChpbmJveC5tYXAoKG4pID0+IG4udHlwZSkpLnRvRXF1YWwoWydpbXBvcnRfY29tcGxldGVkJywgJ2ltcG9ydF9jb21wbGV0ZWQnXSk7CiAgfSk7CgogIGl0KCdwYXJ0aWFsIGZhaWx1cmUgcmV0dXJucyAyMDcgd2l0aCBmYWlsZWRSb3dzIGFuZCByb2xsYmFjayBndWlkYW5jZScsIGFzeW5jICgpID0+IHsKICAgIGF3YWl0IHJ1bkltcG9ydCh7IGRyeVJ1bjogZmFsc2UsIHJlY29yZHM6IFtyZWNvcmRzWzBdXSB9KTsKCiAgICAvLyBTaW11bGF0ZSBhIGNvbmN1cnJlbnQgaW1wb3J0IGxhbmRpbmcgYmV0d2VlbiBwbGFubmluZyBhbmQgd3JpdGluZzogdGhlCiAgICAvLyBwbGFuIG1pc3NlcyBleHQtMSwgc28gaXRzIGluc2VydCBoaXRzIHRoZSB1bmlxdWUgaW5kZXggd2hpbGUgZXh0LTIgbGFuZHMuCiAgICB2aS5zcHlPbihDb2xsZWN0aW9uLnByb3RvdHlwZSwgJ2ZpbmQnKS5tb2NrUmV0dXJuVmFsdWVPbmNlKHsgdG9BcnJheTogYXN5bmMgKCkgPT4gW10gfSk7CiAgICBjb25zdCByZXMgPSBhd2FpdCBydW5JbXBvcnQoeyBkcnlSdW46IGZhbHNlLCByZWNvcmRzIH0pOwogICAgY29uc3QgYm9keSA9IGF3YWl0IGV4cGVjdENvbnRyYWN0KHJlcywgJy9hcGkvbWF0ZXJpYWxzL2ltcG9ydCcsICdwb3N0Jyk7CgogICAgZXhwZWN0KHJlcy5zdGF0dXMpLnRvQmUoMjA3KTsKICAgIGV4cGVjdChib2R5LmNyZWF0ZWQpLnRvQmUoMSk7CiAgICBleHBlY3QoYm9keS5mYWlsZWRSb3dzKS50b0VxdWFsKFtleHBlY3Qub2JqZWN0Q29udGFpbmluZyh7IHJvdzogMSwgYWN0aW9uOiAnY3JlYXRlJywgY29kZTogMTEwMDAgfSldKTsKICAgIGV4cGVjdChib2R5LnJvbGxiYWNrLmltcG9ydEJhdGNoSWQpLnRvQmUoYm9keS5pbXBvcnRCYXRjaElkKTsKICAgIGV4cGVjdChhd2FpdCBkYi5jb2xsZWN0aW9uKCdtYXRlcmlhbHMnKS5jb3VudERvY3VtZW50cyh7IHVzZXJBZGRyZXNzLCBleHRlcm5hbElkOiAnZXh0LTEnIH0pKS50b0JlKDEpOwoKICAgIGNvbnN0IGZhaWx1cmUgPSBhd2FpdCBkYi5jb2xsZWN0aW9uKCdub3RpZmljYXRpb25zJykuZmluZE9uZSh7IHJlY2lwaWVudDogY3VycmVudFVzZXIudmFsdWUuc3ViLCBkZWR1cGVLZXk6IGBpbXBvcnQ6JHtib2R5LmltcG9ydEJhdGNoSWR9YCB9KTsKICAgIGV4cGVjdChmYWlsdXJlLnR5cGUpLnRvQmUoJ2ltcG9ydF9wYXJ0aWFsX2ZhaWx1cmUnKTsKICB9KTsKCiAgaXQoJ21hbGZvcm1lZCBwYXlsb2FkIHJldHVybnMgdGhlIGRvY3VtZW50ZWQgZXJyb3Igc2hhcGUnLCBhc3luYyAoKSA9PiB7CiAgICBjb25zdCByZXMgPSBhd2FpdCBydW5JbXBvcnQoeyByZWNvcmRzOiBbXSB9KTsKICAgIGNvbnN0IGJvZHkgPSBhd2FpdCBleHBlY3RDb250cmFjdChyZXMsICcvYXBpL21hdGVyaWFscy9pbXBvcnQnLCAncG9zdCcpOwogICAgZXhwZWN0KGJvZHkuZXJyb3IpLnRvTWF0Y2goL25vIHJlY29yZHMvKTsKICB9KTsKfSk7CgpkZXNjcmliZSgnL2FwaS9ub3RpZmljYXRpb25zIGNvbnRyYWN0JywgKCkgPT4gewogIGl0KCdyZWplY3RzIHVuYXV0aGVudGljYXRlZCBjYWxsZXJzIHdpdGggdGhlIEVycm9yIHNoYXBlJywgYXN5bmMgKCkgPT4gewogICAgY3VycmVudFVzZXIudmFsdWUgPSBudWxsOwogICAgY29uc3QgcmVzID0gYXdhaXQgbGlzdE5vdGlmaWNhdGlvbnMoanNvblJlcXVlc3QoJy9hcGkvbm90aWZpY2F0aW9ucycsICdHRVQnKSk7CiAgICBleHBlY3QocmVzLnN0YXR1cykudG9CZSg0MDEpOwogICAgYXdhaXQgZXhwZWN0Q29udHJhY3QocmVzLCAnL2FwaS9ub3RpZmljYXRpb25zJywgJ2dldCcpOwogIH0pOwoKICBpdCgnbGlzdHMgYW5kIG1hcmtzIG9ubHkgdGhlIGNhbGxlcidzIG5vdGlmaWNhdGlvbnMnLCBhc3luYyAoKSA9PiB7CiAgICBhd2FpdCBydW5JbXBvcnQoeyBkcnlSdW46IGZhbHNlLCByZWNvcmRzOiBbcmVjb3Jkc1swXV0gfSk7CgogICAgY29uc3QgcmVzID0gYXdhaXQgbGlzdE5vdGlmaWNhdGlvbnMoanNvblJlcXVlc3QoJy9hcGkvbm90aWZpY2F0aW9ucz9saW1pdD01JywgJ0dFVCcpKTsKICAgIGNvbnN0IGJvZHkgPSBhd2FpdCBleHBlY3RDb250cmFjdChyZXMsICcvYXBpL25vdGlmaWNhdGlvbnMnLCAnZ2V0Jyk7CiAgICBleHBlY3QoYm9keS51bnJlYWRDb3VudCkudG9CZSgxKTsKICAgIGV4cGVjdChib2R5Lm5vdGlmaWNhdGlvbnNbMF0ubGluaykudG9CZSgnL2Rhc2hib2FyZC9teS1tYXRlcmlhbHMnKTsKICAgIGNvbnN0IGlkID0gYm9keS5ub3RpZmljYXRpb25zWzBdLmlkOwoKICAgIGNvbnN0IG93bmVyID0gY3VycmVudFVzZXIudmFsdWU7CiAgICBjdXJyZW50VXNlci52YWx1ZSA9IHsgc3ViOiAnc29tZW9uZS1lbHNlJyB9OwogICAgY29uc3QgZm9yZWlnbiA9IGF3YWl0IG1hcmtSZWFkKGpzb25SZXF1ZXN0KCcvYXBpL25vdGlmaWNhdGlvbnMnLCAnUEFUQ0gnLCB7IGlkczogW2lkXSB9KSk7CiAgICBleHBlY3QoKGF3YWl0IGV4cGVjdENvbnRyYWN0KGZvcmVpZ24sICcvYXBpL25vdGlmaWNhdGlvbnMnLCAncGF0Y2gnKSkudXBkYXRlZCkudG9CZSgwKTsKCiAgICBjdXJyZW50VXNlci52YWx1ZSA9IG93bmVyOwogICAgY29uc3Qgb3duID0gYXdhaXQgbWFya1JlYWQoanNvblJlcXVlc3QoJy9hcGkvbm90aWZpY2F0aW9ucycsICdQQVRDSCcsIHsgaWRzOiBbaWRdIH0pKTsKICAgIGV4cGVjdCgoYXdhaXQgZXhwZWN0Q29udHJhY3Qob3duLCAnL2FwaS9ub3RpZmljYXRpb25zJywgJ3BhdGNoJykpLnVwZGF0ZWQpLnRvQmUoMSk7CgogICAgY29uc3QgZW1wdHkgPSBhd2FpdCBtYXJrUmVhZChqc29uUmVxdWVzdCgnL2FwaS9ub3RpZmljYXRpb25zJywgJ1BBVENIJywge30pKTsKICAgIGV4cGVjdChlbXB0eS5zdGF0dXMpLnRvQmUoNDAwKTsKICAgIGF3YWl0IGV4cGVjdENvbnRyYWN0KGVtcHR5LCAnL2FwaS9ub3RpZmljYXRpb25zJywgJ3BhdGNoJyk7CiAgfSk7Cn0pOwoKZGVzY3JpYmUoJy9hcGkvcmVjZWlwdHMgY29udHJhY3QnLCAoKSA9PiB7CiAgY29uc3QgY3JpdGljYWxPcCA9IHsKICAgIG9wZXJhdGlvbjogJ21hdGVyaWFscy5pbXBvcnQnLAogICAgc3RhdHVzOiAnc3VjY2VlZGVkJywKICAgIGV4dGVybmFsUmVmczogeyBpbXBvcnRCYXRjaElkOiAnYmF0Y2gtMScgfSwKICAgIHBheWxvYWQ6IHsgY3JlYXRlZDogMiwgdXBkYXRlZDogMCB9LAogIH07CgogIGl0KCdjcmVhdGVzIGEgc2lnbmVkIHJlY2VpcHQgZm9yIGEgY3JpdGljYWwgb3BlcmF0aW9uJywgYXN5bmMgKCkgPT4gewogICAgY29uc3QgcmVzID0gYXdhaXQgcnVuQ3JlYXRlUmVjZWlwdChjcml0aWNhbE9wKTsKICAgIGNvbnN0IGJvZHkgPSBhd2FpdCBleHBlY3RDb250cmFjdChyZXMsICcvYXBpL3JlY2VpcHRzJywgJ3Bvc3QnKTsKCiAgICBleHBlY3QocmVzLnN0YXR1cykudG9CZSgyMDEpOwogICAgZXhwZWN0KGJvZHkucmVjZWlwdCkudG9NYXRjaE9iamVjdCh7CiAgICAgIGFjdG9yOiBjdXJyZW50VXNlci52YWx1ZS5zdWIsCiAgICAgIG9wZXJhdGlvbjogJ21hdGVyaWFscy5pbXBvcnQnLAogICAgICBzdGF0dXM6ICdzdWNjZWVkZWQnLAogICAgICBleHRlcm5hbFJlZnM6IHsgaW1wb3J0QmF0Y2hJZDogJ2JhdGNoLTEnIH0sCiAgICB9KTsKICAgIGV4cGVjdChib2R5LnJlY2VpcHQuaWQpLnRvQmVUcnV0aHkoKTsKICAgIGV4cGVjdChib2R5LnJlY2VpcHQudGltZXN0YW1wKS50b01hdGNoKC9eXGR7NH0tXGR7Mn0tXGR7Mn1ULyk7CiAgICBleHBlY3QoYm9keS5yZWNlaXB0LnNpZ25hdHVyZSkudG9NYXRjaCgvXlswLTlhLWZdKyQvKTsKICAgIGV4cGVjdChib2R5LnJlY2VpcHQucGF5bG9hZEhhc2gpLnRvTWF0Y2goL15bMC05YS1mXSskLyk7CiAgfSk7CgogIGl0KCdwcm9kdWNlcyBhIHN0YWJsZSwgdmVyaWZpYWJsZSBwYXlsb2FkIGZvciBpZGVudGljYWwgcmVxdWVzdHMnLCBhc3luYyAoKSA9PiB7CiAgICBjb25zdCBmaXJzdCA9IGF3YWl0IHJ1bkNyZWF0ZVJlY2VpcHQoY3JpdGljYWxPcCk7CiAgICBjb25zdCBmaXJzdEJvZHkgPSBhd2FpdCBleHBlY3RDb250cmFjdChmaXJzdCwgJy9hcGkvcmVjZWlwdHMnLCAncG9zdCcpOwogICAgZXhwZWN0KGZpcnN0LnN0YXR1cykudG9CZSgyMDEpOwoKICAgIGNvbnN0IHNlY29uZCA9IGF3YWl0IHJ1bkNyZWF0ZVJlY2VpcHQoY3JpdGljYWxPcCk7CiAgICBjb25zdCBzZWNvbmRCb2R5ID0gYXdhaXQgZXhwZWN0Q29udHJhY3Qoc2Vjb25kLCAnL2FwaS9yZWNlaXB0cycsICdwb3N0Jyk7CiAgICBleHBlY3Qoc2Vjb25kLnN0YXR1cykudG9CZSgyMDApOwogICAgZXhwZWN0KHNlY29uZEJvZHkucmVjZWlwdC5pZCkudG9CZShmaXJzdEJvZHkucmVjZWlwdC5pZCk7CiAgICBleHBlY3Qoc2Vjb25kQm9keS5yZWNlaXB0LnBheWxvYWRIYXNoKS50b0JlKGZpcnN0Qm9keS5yZWNlaXB0LnBheWxvYWRIYXNoKTsKICB9KTsKCiAgaXQoJ3JldHVybnMgdGhlIHJlY2VpcHQgdG8gaXRzIGFjdG9yIGFuZCB2ZXJpZmllcyB0aGUgc2lnbmF0dXJlJywgYXN5bmMgKCkgPT4gewogICAgY29uc3QgY3JlYXRlZCA9IGF3YWl0IHJ1bkNyZWF0ZVJlY2VpcHQoY3JpdGljYWxPcCk7CiAgICBjb25zdCBjcmVhdGVkQm9keSA9IGF3YWl0IGV4cGVjdENvbnRyYWN0KGNyZWF0ZWQsICcvYXBpL3JlY2VpcHRzJywgJ3Bvc3QnKTsKCiAgICBjb25zdCByZXMgPSBhd2FpdCBydW5HZXRSZWNlaXB0KGNyZWF0ZWRCb2R5LnJlY2VpcHQuaWQpOwogICAgY29uc3QgYm9keSA9IGF3YWl0IGV4cGVjdENvbnRyYWN0KHJlcywgJy9hcGkvcmVjZWlwdHMve2lkfScsICdnZXQnKTsKICAgIGV4cGVjdChyZXMuc3RhdHVzKS50b0JlKDIwMCk7CiAgICBleHBlY3QoYm9keS52ZXJpZmllZCkudG9CZS h0cnVlKTsKICB9KTsKCiAgaXQoJ2RlbmllcyByZWNlaXB0IGxvb2t1cCB0byBhIG5vbi1hY3RvciBub24tYWRtaW4nLCBhc3luYyAoKSA9PiB7CiAgICBjb25zdCBjcmVhdGVkID0gYXdhaXQgcnVuQ3JlYXRlUmVjZWlwdChjcml0aWNhbE9wKTsKICAgIGNvbnN0IGNyZWF0ZWRCb2R5ID0gYXdhaXQgZXhwZWN0Q29udHJhY3QoY3JlYXRlZCwgJy9hcGkvcmVjZWlwdHMnLCAncG9zdCcpOwoKICAgIGN1cnJlbnRVc2VyLnZhbHVlID0geyBzdWI6ICdvdGhlci11c2VyJywgcm9sZTogJ3N0dWRlbnQnIH07CiAgICBjb25zdCByZXMgPSBhd2FpdCBydW5HZXRSZWNlaXB0KGNyZWF0ZWRCb2R5LnJlY2VpcHQuaWQpOwogICAgZXhwZWN0KHJlcy5zdGF0dXMpLnRvQmUoNDAzKTsKICB9KTsKCiAgaXQoJ2RldGVjdHMgdGFtcGVyaW5nIGJ5IGZhaWxpbmcgc2lnbmF0dXJlIHZlcmlmaWNhdGlvbicsIGFzeW5jICgpID0+IHsKICAgIGNvbnN0IGNyZWF0ZWQgPSBhd2FpdCBydW5DcmVhdGVSZWNlaXB0KGNyaXRpY2FsT3ApOwogICAgY29uc3QgY3JlYXRlZEJvZHkgPSBhd2FpdCBleHBlY3RDb250cmFjdChjcmVhdGVkLCAnL2FwaS9yZWNlaXB0cycsICdwb3N0Jyk7CiAgICBjb25zdCBpZCA9IGNyZWF0ZWRCb2R5LnJlY2VpcHQuaWQ7CgogICAgYXdhaXQgZGIuY29sbGVjdGlvbigncmVjZWlwdHMnKS51cGRhdGVPbmUoeyBfaWQ6IGlkIH0sIHsgJHNldDogeyAncGF5bG9hZC5jcmVhdGVkJzogOTk5IH0gfSk7CgogICAgY29uc3QgcmVzID0gYXdhaXQgcnVuR2V0UmVjZWlwdChpZCk7CiAgICBjb25zdCBib2R5ID0gYXdhaXQgZXhwZWN0Q29udHJhY3QocmVzLCAnL2FwaS9yZWNlaXB0cy97aWR9JywgJ2dldCcpOwogICAgZXhwZWN0KGJvZHkudmVyaWZpZWQpLnRvQmUoZmFsc2UpOwogIH0pOwp9KTsK
+// @vitest-environment node
+//
+// #793: contract drift tests. Real route handlers run against Mongo
+// (mongodb-memory-server via vitest globalSetup) and every response body is
+// checked against the schema documented for that status in docs/openapi.yaml.
+// Removing or retyping a documented field, or changing a status code without
+// updating the spec, fails here.
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { parse } from 'yaml';
+import { Collection } from 'mongodb';
+
+const { currentUser } = vi.hoisted(() => ({ currentUser: { value: null } }));
+
+vi.mock('@/lib/api/auth', () => ({ getUserFromCookie: vi.fn(async () => currentUser.value) }));
+vi.mock('@/lib/api/hardening', () => ({ withApiHardening: vi.fn((req, options, handler) => handler()) }));
+vi.mock('@/lib/api/audit', () => ({ auditLog: vi.fn() }));
+vi.mock('@/lib/cache/redis', () => ({ invalidateCatalogCache: vi.fn() }));
+
+import { getDb } from '@/lib/mongodb';
+import { REQUIRED_INDEXES } from '@/lib/backend/schemaContracts';
+import { POST as importMaterials } from '../materials/import/route';
+import { GET as listNotifications, PATCH as markRead } from '../notifications/route';
+import { POST as createReceipt } from '../receipts/route';
+import { GET as getReceipt } from '../receipts/[id]/route';
+
+const spec = parse(readFileSync(new URL('../../../../docs/openapi.yaml', import.meta.url), 'utf8'));
+
+function resolve(schema) {
+  let s = schema;
+  while (s?.$ref) s = s.$ref.replace('#/', '').split('/').reduce((node, key) => node[key], spec);
+  return s;
+}
+
+function typeOf(value) {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  if (Number.isInteger(value)) return 'integer';
+  return typeof value;
+}
+
+// Minimal JSON Schema subset used by the spec: $ref, allOf, oneOf, type
+// (incl. arrays), required, properties, items, enum.
+function validate(value, rawSchema, path = '$') {
+  const schema = resolve(rawSchema);
+  if (!schema) return [];
+  if (schema.allOf) return schema.allOf.flatMap((s) => validate(value, s, path));
+  if (schema.oneOf) {
+    const results = schema.oneOf.map((s) => validate(value, s, path));
+    return results.some((r) => r.length === 0) ? [] : [`${path}: matches no oneOf branch (${results.flat().join('; ')})`];
+  }
+  const errors = [];
+  if (schema.type) {
+    const allowed = [].concat(schema.type);
+    const actual = typeOf(value);
+    if (!allowed.includes(actual) && !(actual === 'integer' && allowed.includes('number'))) {
+      return [`${path}: expected ${allowed.join('|')}, got ${actual}`];
+    }
+  }
+  if (schema.enum && !schema.enum.includes(value)) errors.push(`${path}: ${JSON.stringify(value)} not in enum`);
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    for (const key of schema.required || []) {
+      if (!(key in value)) errors.push(`${path}.${key}: required but missing`);
+    }
+    for (const [key, sub] of Object.entries(schema.properties || {})) {
+      if (value[key] !== undefined) errors.push(...validate(value[key], sub, `${path}.${key}`));
+    }
+  }
+  if (Array.isArray(value) && schema.items) {
+    value.forEach((item, i) => errors.push(...validate(item, schema.items, `${path}[${i}]`)));
+  }
+  return errors;
+}
+
+async function expectContract(res, route, method) {
+  const operation = spec.paths[route][method];
+  const documented = operation.responses[String(res.status)];
+  expect(documented, `${method.toUpperCase()} ${route} returned undocumented status ${res.status}`).toBeDefined();
+  const body = await res.json();
+  const schema = resolve(documented).content['application/json'].schema;
+  expect(validate(body, schema)).toEqual([]);
+  return body;
+}
+
+const jsonRequest = (url, method, body) => new Request(`http://localhost${url}`, {
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: body === undefined ? undefined : JSON.stringify(body),
+});
+
+const runImport = (body) => importMaterials(jsonRequest('/api/materials/import', 'POST', body));
+
+const runCreateReceipt = (body) => createReceipt(jsonRequest('/api/receipts', 'POST', body));
+const runGetReceipt = (id) => getReceipt(jsonRequest(`/api/receipts/${id}`, 'GET'), { params: { id } });
+
+let db;
+let userAddress;
+
+beforeAll(async () => {
+  db = await getDb();
+  for (const collection of ['materials', 'notifications', 'receipts']) {
+    for (const { keys, options } of REQUIRED_INDEXES.collection || []) {
+      await db.collection(collection).createIndex(keys, options);
+    }
+  }
+});
+
+beforeEach(() => {
+  userAddress = `GTEST${Math.random().toString(36).slice(2).toUpperCase()}`;
+  currentUser.value = { sub: `user-${userAddress}`, walletAddress: userAddress };
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+const records = [
+  { externalId: 'ext-1', title: 'Algebra notes', storageKey: 'ipfs://algebra', price: 2 },
+  { externalId: 'ext-2', title: 'Physics notes', storageKey: 'ipfs://physics' },
+];
+
+describe('POST /api/materials/import contract', () => {
+  it('dry run returns the plan and performs no persistent writes', async () => {
+    const writeMethods = ['insertOne', 'insertMany', 'updateOne', 'updateMany', 'bulkWrite', 'replaceOne', 'deleteOne', 'deleteMany', 'findOneAndUpdate'];
+    const spies = writeMethods.map((m) => vi.spyOn(Collection.prototype, m));
+
+    const res = await runImport({ dryRun: true, records });
+    const body = await expectContract(res, '/api/materials/import', 'post');
+
+    expect(res.status).toBe(200);
+    expect(body.summary).toEqual({ create: 2, update: 0, skip: 0, error: 0 });
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('dry run reports invalid and duplicate rows with 400 and no writes', async () => {
+    const res = await runImport({
+      dryRun: true,
+      records: [...records, { externalId: 'ext-1', title: 'Dup', storageKey: 'ipfs://dup' }, { title: '', storageKey: 'ipfs://x' }],
+    });
+    const body = await expectContract(res, '/api/materials/import', 'post');
+
+    expect(res.status).toBe(400);
+    expect(body.invalidRows.map((r) => r.row)).toEqual([3, 4]);
+    expect(await db.collection('materials').countDocuments({ userAddress })).toBe(0);
+  });
+
+  it('commit with invalid rows writes nothing', async () => {
+    const res = await runImport({ dryRun: false, records: [...records, { title: 'No key' }] });
+    await expectContract(res, '/api/materials/import', 'post');
+
+    expect(res.status).toBe(400);
+    expect(await db.collection('materials').countDocuments({ userAddress })).toBe(0);
+  });
+
+  it('commit creates, then a repeated import is idempotent, then changes become updates', async () => {
+    const first = await runImport({ dryRun: false, records });
+    const firstBody = await expectContract(first, '/api/materials/import', 'post');
+    expect(first.status).toBe(201);
+    expect(firstBody).toMatchObject({ created: 2, updated: 0, imported: 2, failedRows: [] });
+    expect(await db.collection('materials').countDocuments({ userAddress, importBatchId: firstBody.importBatchId })).toBe(2);
+
+    const again = await runImport({ dryRun: false, records });
+    const againBody = await expectContract(again, '/api/materials/import', 'post');
+    expect(again.status).toBe(200);
+    expect(againBody.summary).toEqual({ create: 0, update: 0, skip: 2, error: 0 });
+    expect(await db.collection('materials').countDocuments({ userAddress })).toBe(2);
+
+    const changed = await runImport({ dryRun: false, records: [{ ...records[0], title: 'Algebra notes v2' }, records[1]] });
+    const changedBody = await expectContract(changed, '/api/materials/import', 'post');
+    expect(changedBody).toMatchObject({ created: 0, updated: 1, summary: { update: 1, skip: 1 } });
+    const history = await db.collection('material_history').findOne({ changeReason: `import ${changedBody.importBatchId}` });
+    expect(history.changes.title).toEqual({ from: 'Algebra notes', to: 'Algebra notes v2' });
+
+    const inbox = await db.collection('notifications').find({ recipient: currentUser.value.sub }).toArray();
+    expect(inbox.map((n) => n.type)).toEqual(['import_completed', 'import_completed']);
+  });
+
+  it('partial failure returns 207 with failedRows and rollback guidance', async () => {
+    await runImport({ dryRun: false, records: [records[0]] });
+
+    // Simulate a concurrent import landing between planning and writing: the
+    // plan misses ext-1, so its insert hits the unique index while ext-2 lands.
+    vi.spyOn(Collection.prototype, 'find').mockReturnValueOnce({ toArray: async () => [] });
+    const res = await runImport({ dryRun: false, records });
+    const body = await expectContract(res, '/api/materials/import', 'post');
+
+    expect(res.status).toBe(207);
+    expect(body.created).toBe(1);
+    expect(body.failedRows).toEqual([expect.objectContaining({ row: 1, action: 'create', code: 11000 })]);
+    expect(body.rollback.importBatchId).toBe(body.importBatchId);
+    expect(await db.collection('materials').countDocuments({ userAddress, externalId: 'ext-1' })).toBe(1);
+
+    const failure = await db.collection('notifications').findOne({ recipient: currentUser.value.sub, dedupeKey: `import:${body.importBatchId}` });
+    expect(failure.type).toBe('import_partial_failure');
+  });
+
+  it('malformed payload returns the documented error shape', async () => {
+    const res = await runImport({ records: [] });
+    const body = await expectContract(res, '/api/materials/import', 'post');
+    expect(body.error).toMatch(/no records/);
+  });
+});
+
+describe('/api/notifications contract', () => {
+  it('rejects unauthenticated callers with the Error shape', async () => {
+    currentUser.value = null;
+    const res = await listNotifications(jsonRequest('/api/notifications', 'GET'));
+    expect(res.status).toBe(401);
+    await expectContract(res, '/api/notifications', 'get');
+  });
+
+  it('lists and marks only the caller\'s notifications', async () => {
+    await runImport({ dryRun: false, records: [records[0]] });
+
+    const res = await listNotifications(jsonRequest('/api/notifications?limit=5', 'GET'));
+    const body = await expectContract(res, '/api/notifications', 'get');
+    expect(body.unreadCount).toBe(1);
+    expect(body.notifications[0].link).toBe('/dashboard/my-materials');
+    const id = body.notifications[0].id;
+
+    const owner = currentUser.value;
+    currentUser.value = { sub: 'someone-else' };
+    const foreign = await markRead(jsonRequest('/api/notifications', 'PATCH', { ids: [id] }));
+    expect((await expectContract(foreign, '/api/notifications', 'patch')).updated).toBe(0);
+
+    currentUser.value = owner;
+    const own = await markRead(jsonRequest('/api/notifications', 'PATCH', { ids: [id] }));
+    expect((await expectContract(own, '/api/notifications', 'patch')).updated).toBe(1);
+
+    const empty = await markRead(jsonRequest('/api/notifications', 'PATCH', {}));
+    expect(empty.status).toBe(400);
+    await expectContract(empty, '/api/notifications', 'patch');
+  });
+});
+
+describe('/api/receipts contract', () => {
+  const criticalOp = {
+    operation: 'materials.import',
+    status: 'succeeded',
+    externalRefs: { importBatchId: 'batch-1' },
+    payload: { created: 2, updated: 0 },
+  };
+
+  it('creates a signed receipt for a critical operation', async () => {
+    const res = await runCreateReceipt(criticalOp);
+    const body = await expectContract(res, '/api/receipts', 'post');
+
+    expect(res.status).toBe(201);
+    expect(body.receipt).toMatchObject({
+      actor: currentUser.value.sub,
+      operation: 'materials.import',
+      status: 'succeeded',
+      externalRefs: { importBatchId: 'batch-1' },
+    });
+    expect(body.receipt.id).toBeTruthy();
+    expect(body.receipt.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(body.receipt.signature).toMatch(/^[0-9a-f]+$/);
+    expect(body.receipt.payloadHash).toMatch(/^[0-9a-f]+$/);
+  });
+
+  it('produces a stable, verifiable payload for identical requests', async () => {
+    const first = await runCreateReceipt(criticalOp);
+    const firstBody = await expectContract(first, '/api/receipts', 'post');
+    expect(first.status).toBe(201);
+
+    const second = await runCreateReceipt(criticalOp);
+    const secondBody = await expectContract(second, '/api/receipts', 'post');
+    expect(second.status).toBe(200);
+    expect(secondBody.receipt.id).toBe(firstBody.receipt.id);
+    expect(secondBody.receipt.payloadHash).toBe(firstBody.receipt.payloadHash);
+  });
+
+  it('returns the receipt to its actor and verifies the signature', async () => {
+    const created = await runCreateReceipt(criticalOp);
+    const createdBody = await expectContract(created, '/api/receipts', 'post');
+
+    const res = await runGetReceipt(createdBody.receipt.id);
+    const body = await expectContract(res, '/api/receipts/{id}', 'get');
+    expect(res.status).toBe(200);
+    expect(body.verified).toBe(true);
+  });
+
+  it('denies receipt lookup to a non-actor non-admin', async () => {
+    const created = await runCreateReceipt(criticalOp);
+    const createdBody = await expectContract(created, '/api/receipts', 'post');
+
+    currentUser.value = { sub: 'other-user', role: 'student' };
+    const res = await runGetReceipt(createdBody.receipt.id);
+    expect(res.status).toBe(403);
+  });
+
+  it('detects tampering by failing signature verification', async () => {
+    const created = await runCreateReceipt(criticalOp);
+    const createdBody = await expectContract(created, '/api/receipts', 'post');
+    const id = createdBody.receipt.id;
+
+    await db.collection('receipts').updateOne({ _id: id }, { $set: { 'payload.created': 999 } });
+
+    const res = await runGetReceipt(id);
+    const body = await expectContract(res, '/api/receipts/{id}', 'get');
+    expect(body.verified).toBe(false);
+  });
+});

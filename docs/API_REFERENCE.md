@@ -30,7 +30,7 @@ Every API error response has the shape:
 | `code` | `string` | Stable machine-readable code. Never changes within a major version. |
 | `message` | `string` | Informational prose. May change. Do not parse. |
 | `retryable` | `boolean` | `true` when the same request may succeed if retried after a delay. |
-| `supportAction` | `string \ | null` | Suggested next step. See [Support Actions](#Support-Actions). |
+| `supportAction` | `string \| null` | Suggested next step. See [Support Actions](#support-actions). |
 
 ---
 
@@ -119,7 +119,7 @@ Codes are prefixed by subsystem:
 | `EVT_REFUND_009` | 422 | false | Purchase buyer not found — the PurchaseBuyer mapping is missing; refund cannot identify the recipient. | `contact_support` |
 | `EVT_REFUND_010`| 503 | true | Refund transaction failed — the Stellar transaction submission failed after retries. | `retry_later` |
 | `EVT_REFUND_011` | 404 | false | Purchase not found — no purchase record exists for the given purchase ID. | `none` |
-| `EVT_REFUND_012` | 409 | false | Refund window expired — the refund was requested after the `REFUND_WINDOW_DAYS cutoff. | `contact_support` |
+| `EVT_REFUND_012` | 409 | false | Refund window expired — the refund was requested after the `REFUND_WINDOW_DAYS` cutoff. | `contact_support` |
 
 ---
 
@@ -159,7 +159,7 @@ Codes are prefixed by subsystem:
 | Code | HTTP | Retryable | Description | Support Action |
 |---|---|---|---|---|
 | `EVT_WEBHOOK_001` | 401 | false | Signature verification failed — the HMAC-SHA256 signature on an inbound webhook payload did not verify. | `none` |
-| `EVT_WEBHOOK_002` | 401 | false | Timestamp too old — the `X-EduVault-Timestamp` header indicates the request is outside the replay-prevention window. | `none` |
+| `EVT_WEBHOOK_002` | 401 | false | Timestamp too old — the `X-EduVault-Timestamp` Header indicates the request is outside the replay-prevention window. | `none` |
 | `EVT_WEBHOOK_003` | 400 | false | Malformed payload — the webhook body could not be parsed as valid JSON. | `none` |
 | `EVT_WEBHOOK_004` | 404 | false | Unknown event type — the `event` field does not match any registered webhook event type. | `none` |
 | `EVT_WEBHOOK_005` | 503 | true | Delivery failed — the creator's configured webhook endpoint returned a non-2xx status. | `retry_later` |
@@ -178,23 +178,11 @@ status, and external references, and is signed so that tampering is detectable.
 
 | Code | HTTP | Retryable | Description | Support Action |
 |---|---|---|---|---|
-| `EVT_RECEIPT_001` | 404 | false | Receipt not found — no receipt exists for the given receipt ID. | `none` |
-| `EVT_RECEIPT_002` | 403 | false | Receipt access denied — the caller is not the receipt actor, not the material creator, and not an admin. | `none` |
-| `EVT_RECEIPT_003` | 409 | false | Receipt already exists — a receipt with the same idempotency key was already created for this operation. | `none` |
-| `EVT_RECEIPS_004` | 422 | false | Receipt tamper detected — the stored receipt payload does not match its signature or canonical hash. | `contact_support` |
-| `EVT_RECEIPT_005` | 422 | false | Invalid receipt payload — the payload is missing required fields or contains unexpected fields. | `none` |
-| `EVT_RECEIPS_006` | 503 | true | Receipt signing unavailable — the receipt signing key is not configured or the signer is temporarily unavailable. | `retry_later` |
-
----
-
-## Auth Errors (`EVT_AUTH_`)
-
-| Code | HTTP | Retryable | Description | Support Action |
-|---|---|---|---|---|
 | `EVT_AUTH_001` | 401 | false | Missing credentials — the request did not include a valid authentication credential. | `none` |
 | `EVT_AUTH_002` | 401 | false | Invalid token — the provided token failed signature or claim validation. | `none` |
 | `EVT_AUTH_003` | 401 | true | Token expired — the access token has passed its expiry; refresh and retry. | `refresh_capability` |
 | `EVT_AUTH_004` | 403 | false | Insufficient role — the authenticated actor does not hold the required role. | `none` |
+| `EVT_AUTH_005` | 409 | false | Wallet not linked — the authenticated user has no verified wallet address on record. | `link_wallet` |
 
 ---
 
@@ -228,3 +216,4 @@ status, and external references, and is signed so that tampering is detectable.
 | `refresh_capability` | Re-issue a download capability token and retry. |
 | `reduce_quantity` | Lower the requested quantity or recipient count and retry. |
 | `contact_support` | Escalate to EduVault support with the code and request ID. |
+| `link_wallet` | Prompt the user to link and verify a wallet address before retrying. |

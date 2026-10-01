@@ -6,12 +6,22 @@ import { applyTaxToCheckout } from '@/lib/checkout/taxEstimator';
 import { getDb } from '@/lib/mongodb';
 import { findMaterial, verifyDiscount } from '@/lib/checkout/discountVerifier';
 import { checkBuyerTrustline } from '@/lib/stellar/horizonClient';
+import {
+  CHECKOUT_INTENT_EXPIRY,
+  ensureCheckoutIntentIndexes,
+  findIntentByIdempotencyKey,
+  insertCheckoutIntent,
+} from '@/lib/checkout/checkoutIntentStore';
 import { createReceipt } from '@/lib/receipts/receiptService';
 import logger from '@/lib/logger';
 
 /**
  * POST /api/checkout/initiate
  * Initiates a checkout with tax estimation based on buyer's geolocation
+ *
+ * Idempotency: clients may supply an `idempotencyKey` (or the `X-Idempotency-Key`
+ * header). When present, a concurrent or retried request with the same key
+ * returns the existing intent instead of creating a duplicate record.
  */
 export async function POST(req) {
   try {
@@ -22,6 +32,8 @@ export async function POST(req) {
 
     const body = await req.json();
     const { materialId, amount, asset, buyerIp, buyerCountry, discountCode } = body;
+    const idempotencyKey =
+      body.idempotencyKey || req.headers.get('x-idempotency-key') || null;
 
     // Validate required fields
     if (!materialId) {
@@ -34,6 +46,39 @@ export async function POST(req) {
 
     if (!asset) {
       return NextResponse.json({ error: 'Missing asset' }, { status: 400 });
+    }
+
+    const buyerAddress = user.walletAddress || user.address || user.id;
+
+    const db = await getDb();
+    await ensureCheckoutIntentIndexes(db);
+
+    // Fast path for retries: return the existing intent without re-running
+    // tax / trustline / discount side effects.
+    if (idempotencyKey) {
+      const existing = await findIntentByIdempotencyKey(db, buyerAddress, idempotencyKey);
+      if (existing) {
+        return NextResponse.json(
+          {
+            success: true,
+            duplicate: true,
+            checkoutId: existing._id,
+            checkout: {
+              checkoutId: existing._id,
+              expiresAt: existing.expiresAt,
+              totalAmount: existing.totalAmount,
+              taxAmount: existing.taxAmount,
+              taxRateBps: existing.taxRateBps,
+              geolocation: existing.geolocation,
+              discountCode: existing.discountCode,
+              discountPercentage: existing.discountPercentage,
+              discountAmount: existing.discountAmount,
+              originalAmount: existing.originalAmount,
+            },
+          },
+          { status: 200 }
+        );
+      }
     }
 
     // Resolve material to verify standard pricing and prevent price tampering
@@ -54,8 +99,6 @@ export async function POST(req) {
         finalBaseAmount = basePrice * (1 - discountPercent / 100);
       }
     }
-
-    const buyerAddress = user.walletAddress || user.address || user.id;
 
     // Verify buyer holds an active trustline for the payment asset
     const assetCode = typeof asset === 'string' ? asset : asset.code || asset;
@@ -84,10 +127,11 @@ export async function POST(req) {
     });
 
     // Store checkout intent in database for later processing
-    const db = await getDb();
+    const now = new Date();
     const checkoutIntent = {
       materialId,
       buyerAddress,
+      idempotencyKey,
       originalAmount: basePrice,
       discountCode: discountCode || null,
       discountPercentage: verifiedDiscount ? (verifiedDiscount.percentage || 0) : 0,
@@ -98,13 +142,11 @@ export async function POST(req) {
       asset,
       geolocation: checkoutWithTax.geolocation,
       status: 'initiated',
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + CHECKOUT_INTENT_EXPIRY),
     };
 
-    const result = await db
-      .collection('checkout_intents')
-      .insertOne(checkoutIntent);
+const { intent: storedIntent, duplicate } = await insertCheckoutIntent(db, checkoutIntent);
 
     // Emit a signed receipt for the checkout intent. Repeated requests for
     // the same checkout id are idempotent and return the existing receipt.
@@ -114,16 +156,31 @@ export async function POST(req) {
       status: 'initiated',
       summary: `Checkout initiated for material ${materialId}`,
       references: {
-        checkoutId: String(result.insertedId),
+        checkoutId: String(storedIntent._id),
         materialId,
         asset: assetCode,
       },
       metadata: {
         totalAmount: checkoutWithTax.totalAmount,
         taxAmount: checkoutWithTax.taxAmount,
-        discountCode: checkoutIntent.discountCode,
+        discountCode: storedIntent.discountCode,
+
+    return NextResponse.json(
+      {
+        success: true,
+        duplicate,
+        checkoutId: storedIntent._id,
+        checkout: {
+          ...checkoutWithTax,
+          checkoutId: storedIntent._id,
+          expiresAt: storedIntent.expiresAt,
+          discountCode: storedIntent.discountCode,
+          discountPercentage: storedIntent.discountPercentage,
+          discountAmount: storedIntent.discountAmount,
+          originalAmount: storedIntent.originalAmount,
+        },
       },
-      idempotencyKey: String(result.insertedId),
+idempotencyKey: String(result.insertedId),
       db,
     });
 
@@ -142,7 +199,7 @@ export async function POST(req) {
           originalAmount: checkoutIntent.originalAmount,
         },
       },
-      { status: 201 }
+      { status: duplicate ? 200 : 201 }
     );
   } catch (err) {
     logger.error({ err: err.message }, 'POST /api/checkout/initiate error');
