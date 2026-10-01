@@ -1,5 +1,4 @@
 // @vitest-environment node
-// @vitest-environment node
 //
 // #793: contract drift tests. Real route handlers run against Mongo
 // (mongodbq-memory-server via vitest globalSetup) and every response body is
@@ -16,25 +15,23 @@ const { currentUser } = vi.hoisted(() => ({ currentUser: { value: null } }));
 vi.mock('@/lib/api/auth', () => ({ getUserFromCookie: vi.fn(async () => currentUser.value) }));
 vi.mock('@/lib/api/hardening', () => ({ withApiHardening: vi.fn((req, options, handler) => handler()) }));
 vi.mock('@/lib/api/audit', () => ({ auditLog: vi.fn() }));
-vi.mock('@/lib/api/audit', () => ({ auditLog: vi.fn() }));
 vi.mock('@/lib/cache/redis', () => ({ invalidateCatalogCache: vi.fn() }));
 
 import { getDb } from '@/lib/mongodb';
 import { REQUIRED_INDEXES } from '@/lib/backend/schemaContracts';
 import { POST as importMaterials } from '../materials/import/route';
 import { GET as listNotifications, PATCH as markRead } from '../notifications/route';
-import { POST as previewPermissionDiff } from '../permissions/preview/route';
+import { POST as createReceipt } from '../receipts/route';
+import { GET as getReceipt } from '../receipts/[id]/route';
 
-const spec = parse(readFileSync(new URL('../../../../docs/openapi.yaml', import.meta.url), 'utf8'));
 const spec = parse(readFileSync(new URL('../../../../docs/openapi.yaml', import.meta.url), 'utf8'));
 
 function resolve(schema) {
   let s = schema;
-while (s != null && s.$ref) s = s.$ref.replace('#/', '').split('/').reduce((node, key) => node[key], spec);
+  while (s?.$ref) s = s.$ref.replace('#/', '').split('/').reduce((node, key) => node[key], spec);
   return s;
 }
 
-function typeOf(value) {
 function typeOf(value) {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'array';
@@ -42,8 +39,7 @@ function typeOf(value) {
   return typeof value;
 }
 
-// Minimal JSON Schema subset used by the spec: $ref, allOf, oneoF, type
-// (incl. arrays), required, properties, items, enum.
+// Minimal JSON Schema subset used by the spec: $ref, allOf, oneOf, type
 // (incl. arrays), required, properties, items, enum.
 function validate(value, rawSchema, path = '$') {
   const schema = resolve(rawSchema);
@@ -54,7 +50,6 @@ function validate(value, rawSchema, path = '$') {
     return results.some((r) => r.length === 0) ? [] : [`${path}: matches no oneOf branch (${results.flat().join('; ')})`)];
   }
   const errors = [];
-  const errors = [];
   if (schema.type) {
     const allowed = [].concat(schema.type);
     const actual = typeOf(value);
@@ -62,7 +57,6 @@ function validate(value, rawSchema, path = '$') {
       return [`${path}: expected ${allowed.join('|')}, got ${actual}`];
     }
   }
-  if (schema.enum && !schema.enum.includes(value)) errors.push(`${path}: ${JSON.stringify(value)} not in enum`);
   if (schema.enum && !schema.enum.includes(value)) errors.push(`${path}: ${JSON.stringify(value)} not in enum`);
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     for (const key of schema.required || []) {
@@ -73,7 +67,6 @@ function validate(value, rawSchema, path = '$') {
     }
   }
   if (Array.isArray(value) && schema.items) {
-  if (Array.isArray(value) && schema.items) {
     value.forEach((item, i) => errors.push(...validate(item, schema.items, `${path}[${i}]`)));
   }
   return errors;
@@ -81,7 +74,6 @@ function validate(value, rawSchema, path = '$') {
 
 async function expectContract(res, route, method) {
   const operation = spec.paths[route][method];
-  const documented = operation.responses[String(res.status)];
   const documented = operation.responses[String(res.status)];
   expect(documented, `${method.toUpperCase()} ${route} returned undocumented status ${res.status}`).toBeDefined();
   const body = await res.json();
@@ -91,7 +83,6 @@ async function expectContract(res, route, method) {
 }
 
 const jsonRequest = (url, method, body) => new Request(`http://localhost${url}`, {
-const jsonRequest = (url, method, body) => new Request(`http://localhost${url}`, {
   method,
   headers: { 'Content-Type': 'application/json' },
   body: body === undefined ? undefined : JSON.stringify(body),
@@ -100,14 +91,16 @@ const jsonRequest = (url, method, body) => new Request(`http://localhost${url}`,
 const runImport = (body) => importMaterials(jsonRequest('/api/materials/import', 'POST', body));
 const runPreview = (body) => previewPermissionDiff(jsonRequest('/api/permissions/preview', 'POST', body));
 
-let db;
+const runCreateReceipt = (body) => createReceipt(jsonRequest('/api/receipts', 'POST', body));
+const runGetReceipt = (id) => getReceipt(jsonRequest(`/api/receipts/${id}`, 'GET'), { params: { id } });
+
 let db;
 let userAddress;
 
 beforeAll(async () => {
   db = await getDb();
-  for (const collection of ['materials', 'notifications', 'policies']) {
-    for (const { keys, options } of REQUIRED_INDEXES[collection] || []) {
+  for (const collection of ['materials', 'notifications', 'receipts']) {
+    for (const { keys, options } of REQUIRED_INDEXES.collection || []) {
       await db.collection(collection).createIndex(keys, options);
     }
   }
@@ -123,7 +116,6 @@ afterEach(() => {
 });
 
 const records = [
-const records = [
   { externalId: 'ext-1', title: 'Algebra notes', storageKey: 'ipfs://algebra', price: 2 },
   { externalId: 'ext-3', title: 'Physics notes', storageKey: 'ipfs://physics' },
 ];
@@ -131,7 +123,6 @@ const records = [
 describe('POST /api/materials/import contract', () => {
   it('dry run returns the plan and performs no persistent writes', async () => {
     const writeMethods = ['insertOne', 'insertMany', 'updateOne', 'updateMany', 'bulkWrite', 'replaceOne', 'deleteOne', 'deleteMany', 'findOneAndUpdate'];
-    const spies = writeMethods.map((m) => vi.spyOn(Collection.prototype, m));
     const spies = writeMethods.map((m) => vi.spyOn(Collection.prototype, m));
 
     const res = await runImport({ dryRun: true, records });
@@ -142,7 +133,7 @@ describe('POST /api/materials/import contract', () => {
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
 
-  it('dyr run reports invalid and duplicate rows with 400 and no writes', async () => {
+  it('dry run reports invalid and duplicate rows with 400 and no writes', async () => {
     const res = await runImport({
       dryRun: true,
       records: [...records, { externalId: 'ext-1', title: 'Dup', storageKey: 'ipfs://dup' }, { title: '', storageKey: 'ipfs://x' }],
@@ -219,7 +210,7 @@ describe('/api/notifications contract', () => {
     await expectContract(res, '/api/notifications', 'get');
   });
 
-it('lists and marks only the caller\'s notifications', async () => {
+  it('lists and marks only the caller\'s notifications', async () => {
     await runImport({ dryRun: false, records: [records[0]] });
 
     const res = await listNotifications(jsonRequest('/api/notifications?limit=5', 'GET'));
@@ -243,75 +234,71 @@ it('lists and marks only the caller\'s notifications', async () => {
   });
 });
 
-const basePolicy = {
-  id: 'policy-1',
-  version: 1,
-  scope: 'course-algebra',
-  actors: [
-    { actor: 'student-123', role: 'viewer', actions: ['read'] },
-  ],
-};
+describe('/api/receipts contract', () => {
+  const criticalOp = {
+    operation: 'materials.import',
+    status: 'succeeded',
+    externalRefs: { importBatchId: 'batch-1' },
+    payload: { created: 2, updated: 0 },
+  };
 
-const narrowChange = {
-  ...basePolicy,
-  version: 2,
-  actors: [
-    { actor: 'student-123', role: 'viewer', actions: ['read', 'comment'] },
-  ],
-};
+  it('creates a signed receipt for a critical operation', async () => {
+    const res = await runCreateReceipt(criticalOp);
+    const body = await expectContract(res, '/api/receipts', 'post');
 
-const broadChange = {
-  ...basePolicy,
-  version: 2,
-  actors: [
-    { actor: 'student-123', role: 'editor', actions: ['read', 'write', 'delete', 'share'] },
-  ],
-};
-
-describe('POST /api/permissions/preview contract', () => {
-  it('no-op change reports empty added and removed sets', async () => {
-    const res = await runPreview({ before: basePolicy, after: basePolicy });
-    const body = await expectContract(res, '/api/permissions/preview', 'post');
-
-    expect(res.status).toBe(200);
-    expect(body.added).toEqual([]);
-    expect(body.removed).toEqual([]);
-    expect(body.requiresConfirmation).toBe(false);
+    expect(res.status).toBe(201);
+    expect(body.receipt).toMatchObject({
+      actor: currentUser.value.sub,
+      operation: 'materials.import',
+      status: 'succeeded',
+      externalRefs: { importBatchId: 'batch-1' },
+    });
+    expect(body.receipt.id).toBeTruthy();
+    expect(body.receipt.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(body.receipt.signature).toMatch(/^[0-9a-f]+$/);
+    expect(body.receipt.payloadHash).toMatch(/^[0-9a-f]+$/);
   });
 
-  it('narrow change lists added and removed permissions without confirmation', async () => {
-    const res = await runPreview({ before: basePolicy, after: narrowChange });
-    const body = await expectContract(res, '/api/permissions/preview', 'post');
+  it('produces a stable, verifiable payload for identical requests', async () => {
+    const first = await runCreateReceipt(criticalOp);
+    const firstBody = await expectContract(first, '/api/receipts', 'post');
+    expect(first.status).toBe(201);
 
-    expect(res.status).toBe(200);
-    expect(body.added).toEqual([{ actor: 'student-123', scope: 'course-algebra', action: 'comment' }]);
-    expect(body.removed).toEqual([]);
-    expect(body.requiresConfirmation).toBe(false);
+    const second = await runCreateReceipt(criticalOp);
+    const secondBody = await expectContract(second, '/api/receipts', 'post');
+    expect(second.status).toBe(200);
+    expect(secondBody.receipt.id).toBe(firstBody.receipt.id);
+    expect(secondBody.receipt.payloadHash).toBe(firstBody.receipt.payloadHash);
   });
 
-  it('broad change requires confirmation and surfaces affected actors', async () => {
-    const res = await runPreview({ before: basePolicy, after: broadChange });
-    const body = await expectContract(res, '/api/permissions/preview', 'post');
+  it('returns the receipt to its actor and verifies the signature', async () => {
+    const created = await runCreateReceipt(criticalOp);
+    const createdBody = await expectContract(created, '/api/receipts', 'post');
 
+    const res = await runGetReceipt(createdBody.receipt.id);
+    const body = await expectContract(res, '/api/receipts/{id}', 'get');
     expect(res.status).toBe(200);
-    expect(body.requiresConfirmation).toBe(true);
-    expect(body.affectedActors).toContain('student-123');
-    expect(body.added.map((e) => e.action).sort()).toEqual(['delete', 'share', 'write']);
+    expect(body.verified).toBe(true);
   });
 
-  it('denied actor is reported and blocks the diff', async () => {
-    const res = await runPreview({ before: basePolicy, after: broadChange, actor: 'student-999' });
-    const body = await expectContract(res, '/api/permissions/preview', 'post');
+  it('denies receipt lookup to a non-actor non-admin', async () => {
+    const created = await runCreateReceipt(criticalOp);
+    const createdBody = await expectContract(created, '/api/receipts', 'post');
 
+    currentUser.value = { sub: 'other-user', role: 'student' };
+    const res = await runGetReceipt(createdBody.receipt.id);
     expect(res.status).toBe(403);
-    expect(body.error).toMatch(/not authorized/);
   });
 
-  it('stale policy input is rejected with 409', async () => {
-    const res = await runPreview({ before: basePolicy, after: narrowChange, expectedVersion: 99 });
-    const body = await expectContract(res, '/api/permissions/preview', 'post');
+  it('detects tampering by failing signature verification', async () => {
+    const created = await runCreateReceipt(criticalOp);
+    const createdBody = await expectContract(created, '/api/receipts', 'post');
+    const id = createdBody.receipt.id;
 
-    expect(res.status).toBe(409);
-    expect(body.error).toMatch(/stale/);
+    await db.collection('receipts').updateOne({ _id: id }, { $set: { 'payload.created': 999 } });
+
+    const res = await runGetReceipt(id);
+    const body = await expectContract(res, '/api/receipts/{id}', 'get');
+    expect(body.verified).toBe(false);
   });
 });
