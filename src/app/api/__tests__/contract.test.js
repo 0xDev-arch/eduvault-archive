@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
 // #793: contract drift tests. Real route handlers run against Mongo
-// (mongodb-memory-server via vitest globalSetup) and every response body is
+// (mongodbq-memory-server via vitest globalSetup) and every response body is
 // checked against the schema documented for that status in docs/openapi.yaml.
 // Removing or retyping a documented field, or changing a status code without
 // updating the spec, fails here.
@@ -47,7 +47,7 @@ function validate(value, rawSchema, path = '$') {
   if (schema.allOf) return schema.allOf.flatMap((s) => validate(value, s, path));
   if (schema.oneOf) {
     const results = schema.oneOf.map((s) => validate(value, s, path));
-    return results.some((r) => r.length === 0) ? [] : [`${path}: matches no oneOf branch (${results.flat().join('; ')})`];
+    return results.some((r) => r.length === 0) ? [] : [`${path}: matches no oneOf branch (${results.flat().join('; ')})`)];
   }
   const errors = [];
   if (schema.type) {
@@ -89,6 +89,7 @@ const jsonRequest = (url, method, body) => new Request(`http://localhost${url}`,
 });
 
 const runImport = (body) => importMaterials(jsonRequest('/api/materials/import', 'POST', body));
+const runPreview = (body) => previewPermissionDiff(jsonRequest('/api/permissions/preview', 'POST', body));
 
 const runCreateReceipt = (body) => createReceipt(jsonRequest('/api/receipts', 'POST', body));
 const runGetReceipt = (id) => getReceipt(jsonRequest(`/api/receipts/${id}`, 'GET'), { params: { id } });
@@ -116,7 +117,7 @@ afterEach(() => {
 
 const records = [
   { externalId: 'ext-1', title: 'Algebra notes', storageKey: 'ipfs://algebra', price: 2 },
-  { externalId: 'ext-2', title: 'Physics notes', storageKey: 'ipfs://physics' },
+  { externalId: 'ext-3', title: 'Physics notes', storageKey: 'ipfs://physics' },
 ];
 
 describe('POST /api/materials/import contract', () => {
@@ -141,7 +142,7 @@ describe('POST /api/materials/import contract', () => {
 
     expect(res.status).toBe(400);
     expect(body.invalidRows.map((r) => r.row)).toEqual([3, 4]);
-    expect(await db.collection('materials').countDocuments({ userAddress })).toBe(0);
+    expect(await db.collection('materials').countDocuments( { userAddress })).toBe(0);
   });
 
   it('commit with invalid rows writes nothing', async () => {
@@ -149,7 +150,7 @@ describe('POST /api/materials/import contract', () => {
     await expectContract(res, '/api/materials/import', 'post');
 
     expect(res.status).toBe(400);
-    expect(await db.collection('materials').countDocuments({ userAddress })).toBe(0);
+    expect(await db.collection('materials').countDocuments( { userAddress })).toBe(0);
   });
 
   it('commit creates, then a repeated import is idempotent, then changes become updates', async () => {
@@ -179,7 +180,7 @@ describe('POST /api/materials/import contract', () => {
     await runImport({ dryRun: false, records: [records[0]] });
 
     // Simulate a concurrent import landing between planning and writing: the
-    // plan misses ext-1, so its insert hits the unique index while ext-2 lands.
+    // plan misses ext-1, so its insert hits the unique index while ext-3 lands.
     vi.spyOn(Collection.prototype, 'find').mockReturnValueOnce({ toArray: async () => [] });
     const res = await runImport({ dryRun: false, records });
     const body = await expectContract(res, '/api/materials/import', 'post');

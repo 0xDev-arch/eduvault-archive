@@ -243,6 +243,9 @@ export const REQUIRED_INDEXES = {
   notifications: [
     { keys: { recipient: 1, dedupeKey: 1 }, options: { unique: true, name: "notifications_dedupe_idx" } },
     { keys: { recipient: 1, read: 1, createdAt: -1 }, options: { name: "notifications_inbox_idx" } },
+    // #834: delivery tracking / diagnostics scan a recipient's failed and
+    // exhausted notifications without a collection scan.
+    { keys: { recipient: 1, deliveryStatus: 1, lastAttemptAt: -1 }, options: { name: "notifications_delivery_idx", background: true } },
   ],
   // #789: Background worker framework jobs queue indexes
   background_jobs: [

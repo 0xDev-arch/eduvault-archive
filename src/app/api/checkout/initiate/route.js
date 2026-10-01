@@ -23,7 +23,7 @@ import logger from '@/lib/logger';
  * header). When present, a concurrent or retried request with the same key
  * returns the existing intent instead of creating a duplicate record.
  */
-export async function POST(req) {
+async function handlePost(req) {
   try {
     const user = await getUserFromCookie(req);
     if (!user) {
@@ -206,6 +206,8 @@ idempotencyKey: String(result.insertedId),
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
+
+export const POST = withTelemetryRoute('checkout.initiate', ACTOR_TYPES.USER, handlePost);
 
 /**
  * GET /api/checkout/initiate
