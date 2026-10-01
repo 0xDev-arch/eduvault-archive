@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
-import { getUserFromCookie } from "@/lib/api/auth";
+import { requirePermission } from "@/lib/api/auth";
 import { validateWebhookUrls, SsrfError } from "@/lib/webhooks/ssrfGuard";
 import { canonicalizeWebhookUrls } from "@/lib/canonicalization";
 
@@ -12,10 +12,11 @@ export const dynamic = "force-dynamic";
 // inputs are reported consistently.
  export async function GET(request) {
   try {
-    const user = await getUserFromCookie(request);
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const authorization = await requirePermission(request, "creator:manage");
+    if (!authorization.ok) {
+      return NextResponse.json({ error: "Forbidden" }, { status: authorization.status });
     }
+    const user = authorization.user;
 
     const db = await getDb();
     const users = db.collection("users");
@@ -43,10 +44,11 @@ export const dynamic = "force-dynamic";
 // is either normalized or rejected consistently.
  export async function PUT request) {
   try {
-    const user = await getUserFromCookie(request);
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const authorization = await requirePermission(request, "creator:manage");
+    if (!authorization.ok) {
+      return NextResponse.json({ error: "Forbidden" }, { status: authorization.status });
     }
+    const user = authorization.user;
 
     const body = await request.json();
     const urls = body.webhookUrls;

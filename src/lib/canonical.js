@@ -22,7 +22,7 @@
 
 export const CANONICAL_VERSION = "eduvault-canonical-v1";
 
-/** Maximum number of fractional digits keept for canonical numbers. */
+/** Maximum number of fractional digits kept for canonical numbers. */
 export const MAX_PRECISION = 12;
 
 /** Maximum absolute magnitude allowed for canonical numbers. */
@@ -49,12 +49,18 @@ function isPlainObject(value) {
  *   - Unicode NFC so composite and decomposed forms collide.
  *   - Trim leading/trailing whitespace.
  *   - Collapse internal runs of whitespace to a single space.
+ *   - Normalize CR / CR + LF line endings to a single LF.
  * */
 export function normalizeString(value) {
   if (typeof value !== "string") {
     throw new CanonicalizationError(`Expected string, received ${typeof value}`);
   }
-  return value.normalize("NFC").replace(/\s+/gu, " ").trim();
+  return value
+    .normalize("NFC")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 /**
@@ -76,6 +82,8 @@ export function normalizeNumber(value) {
     str = value.toString();
   } else if (typeof value === "string") {
     str = value.trim();
+  } else if (typeof value === "bigint") {
+    return value.toString(10);
   } else {
     throw new CanonicalizationError(`Expected number, received ${typeof value}`);
   }
@@ -189,7 +197,7 @@ function comparePrimitives(a, b) {
   const left = JSON.stringify(a);
   const right = JSON.stringify(b);
   if (left < right) return -1;
-  if (left > right return 1;
+  if (left > right) return 1;
   return 0;
 }
 
@@ -235,4 +243,34 @@ export function normalizeLegacyRecord(record, options = {}) {
     throw new CanonicalizationError("Legacy record must be an object");
   }
   return normalizePayload(record, { dropUndefined: true, sortArrays: false, ...options });
+}
+
+/**
+ * Legacy compatibility path.
+ *
+ * Older EduVault records may store payloads with:
+ *   - non-canonical key ordering,
+ *   - unnormalized numeric strings (e.g. "001.500"),
+ *   - composed/uncomposed Unicode,
+ *   - CRLF line endings,
+ *   - whitespace-padded strings.
+ *
+ * This function accepts those shapes and normalizes them into the current
+ * canonical form. It also reports whether the input was already canonical,
+ * which is useful for migration tooling and audit logs.
+ */
+export function normalizeLegacyPayload(payload, options = {}) {
+  const canonical = canonicalize(payload, options);
+  const original = typeof payload === "string" ? payload : JSON.stringify(payload);
+  return {
+    canonical,
+    alreadyCanonical: original === canonical,
+  };
+}
+
+/**
+ * Compare two payloads by their canonical representation.
+ */
+export function canonicalEqual(a, b, options = {}) {
+  return canonicalize(a, options) === canonicalize(b, options);
 }
