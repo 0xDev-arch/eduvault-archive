@@ -49,7 +49,9 @@
     "worker:background:status": "node scripts/run-background-worker.mjs --status",
     "worker:background:reprocess": "node scripts/run-background-worker.mjs --reprocess-dead-letters",
     "validate:e2e-purchase": "node scripts/validate-e2e-purchase-coverage.mjs",
-    "release:readiness": "node scripts/release-readiness.mjs"
+    "release:readiness": "node scripts/release-readiness.mjs",
+    "flags:status": "node scripts/feature-flag-status.mjs",
+    "flags:status:db": "node scripts/feature-flag-status.mjs --db"
   },
   "dependencies": {
     "@creit-tech/stellar-wallets-kit": "npm:@jsr/creit-tech__stellar-wallets-kit@^2.1.0",

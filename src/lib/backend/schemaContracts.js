@@ -261,6 +261,13 @@ export const REQUIRED_INDEXES = {
   notification_preferences: [
     { keys: { recipient: 1, type: 1 }, options: { unique: true, name: "notification_preferences_recipient_type_idx" } },
   ],
+  // #1018: runtime feature flag overrides — one doc per flag key, upserted by
+  // the admin API. Unique index on key makes concurrent emergency-disable
+  // calls safe (last writer wins via upsert).
+  feature_flag_overrides: [
+    { keys: { key: 1 }, options: { unique: true, name: "feature_flag_overrides_key_idx" } },
+    { keys: { updatedAt: -1 }, options: { name: "feature_flag_overrides_updated_idx", background: true } },
+  ],
   // #789: Background worker framework jobs queue indexes
   background_jobs: [
     { keys: { jobId: 1 }, options: { unique: true, name: "background_jobs_id_idx" } },
