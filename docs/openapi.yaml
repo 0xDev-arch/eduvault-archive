@@ -8,6 +8,11 @@ info:
     All write endpoints require a valid `auth_token` cookie issued by the
     `/api/auth` login flow (HS256 JWT signed with `JWT_SECRET`).
 
+    Inbound webhooks and integration callbacks are verified with an HMAC-SHA256
+    signature over the canonical `<timestamp>.<body>`
+    payload and are rejected when the timestamp falls outside the configured
+    replay window or when the event id has already been processed.
+
 servers:
   - url: "http://localhost:3000"
     description: Local development
@@ -30,6 +35,50 @@ components:
         details:
           type: object
       required: [error]
+
+    WebhookError:
+      type: object
+      description: |
+        Structured error returned by the webhook endpoint. The `code` is a
+        stable machine-readable value so clients can react without parsing
+        the human-readable message.
+      required: [error, code]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          enum:
+            - invalid_signature
+            - missing_signature
+            - stale_timestamp
+            - invalid_timestamp
+            - duplicate_event
+            - malformed_payload
+            - unknown_provider
+            - internal_error
+        details:
+          type: object
+          additionalProperties: true
+
+    WebhookAcknowledgement:
+      type: object
+      description: |
+        Returned when an event is accepted. `duplicate` is true when the event
+        was already processed and no side effects were repeated.
+      required: [received, duplicate, eventId]
+      properties:
+        received:
+          type: boolean
+        duplicate:
+          type: boolean
+        eventId:
+          type: string
+        provider:
+          type: string
+        processedRecords:
+          type: integer
+          description: Number of records affected by this event (0 for duplicates).
 
     Material:
       type: object
@@ -349,473 +398,218 @@ components:
           type: string
           format: date-time
 
-  responses:
-    Unauthorized:
-      description: Not authenticated
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-    BadRequest:
-      description: Validation error
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-    RateLimited:
-      description: Too many requests
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
+    IncidentInput:
+      type: object
+      description: Inputs for the incident impact calculator.
+      required: [incidentId, window]
+      properties:
+        incidentId:
+          type: string
+          description: Stable identifier for the incident being assessed.
+        window:
+          type: object
+          required: [start, end]
+          properties:
+            start:
+              type: string
+              format: date-time
+            end:
+              type: string
+              format: date-time
+        affectedUsers:
+          type: array
+          description: Wallet addresses of users believed to be affected.
+          items:
+            type: string
+        affectedRecords:
+          type: array
+          description: Material ids believed to be affected.
+          items
+            type: string
+        affectedOperations:
+          type: array
+          description: Operation types that were disrupted.
+          items:
+            type: string
+            enum: [purchase, import, download, entitlement]
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        redact:
+          type: boolean
+          default: true
+          description: When true, return the shareable view with sensitive details redacted.
 
-security:
-  - cookieAuth: []
+    IncidentImpactSummary:
+      type: object
+      required: [users, records, operations, severity]
+      properties:
+        users:
+          type: integer
+        records:
+          type: integer
+        operations:
+          type: integer
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+
+    IncidentImpactResult:
+      type: object
+      required: [incidentId, window, summary, internal, shareable]
+      properties:
+        incidentId:
+          type: string
+        window:
+          type: object
+          required: [start, end]
+          properties:
+            start:
+              type: string
+              format: date-time
+            end:
+              type: string
+              format: date-time
+        summary:
+          $ref: "#/components/schemas/IncidentImpactSummary"
+        internal:
+          type: object
+          description: Full detail for maintainers. Only included when redact is false.
+          properties:
+            affectedUsers:
+              type: array
+              items
+                type: string
+            affectedRecords:
+              type: array
+              items:
+                type: string
+            affectedOperations:
+              type: array
+              items:
+                type: string
+        shareable:
+          type: object
+          description: Redacted view safe for external communication.
+          required: [incidentId, window, summary]
+          properties:
+            incidentId:
+              type: string
+            window:
+              type: object
+              required: [start, end]
+              properties:
+                start:
+                  type: string
+                  format: date-time
+                end:
+                  type: string
+                  format: date-time
+            summary:
+              $ref: "#/components/schemas/IncidentImpactSummary"
+            note:
+              type: string
+              description: Human-readable explanation of the redaction.
+
+    ReceiptPayload:
+      type: object
+      description: |
+        Canonical, deterministic receipt payload. The `SIGNATURE_VERSION` and
+        `SIGNATURE_ALGORITHM` are constants so consumers can recreate the
+        canonical bytes and verify the HMAC-SHA256 signature independently.
+      required:
+        - receiptId
+        - operation
+        - actor
 
 paths:
-  # ---------------------------------------------------------------------------
-  # Materials
-  # ---------------------------------------------------------------------------
-  /api/materials:
-    get:
-      summary: List the authenticated user's materials
-      operationId: listMyMaterials
-      tags: [Materials]
-      responses:
-        "200":
-          description: Array of material documents
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Material"
-        "401":
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "429":
-          description: Rate limited
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
+  /api/webhooks/{provider}:
     post:
-      summary: Create a new material listing
-      operationId: createMaterial
-      tags: [Materials]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/MaterialInput"
-      responses:
-        "201":
-          description: Material created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Material"
-        "400":
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/RateLimited"
+      operationId: receiveWebhook
+      summary: Receive a signed integration webhook
+      description: |
+        Verifies an inbound webhook from a supported provider and applies its
+        side effects at most once.
 
-  /api/materials/import:
-    post:
-      summary: Validate or import structured material records
-      operationId: importMaterials
-      tags: [Materials]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                format:
-                  type: string
-                  enum: [json, csv]
-                dryRun:
-                  type: boolean
-                records:
-                  type: array
-                  items:
-                    $ref: "#/components/schemas/MaterialImportRecord"
-                items:
-                  type: array
-                  items:
-                    $ref: "#/components/schemas/MaterialImportRecord"
-      responses:
-        "200":
-          description: Dry-run plan with no errors, or a commit where every row was already imported. Dry runs never write.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MaterialImportResponse"
-        "201":
-          description: Every planned create/update was written
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MaterialImportCommitResponse"
-        "207":
-          description: Partial import — some writes failed; see failedRows and rollback
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MaterialImportCommitResponse"
-        "400":
-          description: Invalid or duplicate rows (plan included, nothing written), or a malformed payload
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  - $ref: "#/components/schemas/MaterialImportResponse"
-                  - $ref: "#/components/schemas/Error"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/RateLimited"
+        Requests must include:
+        - `Xb-EduVault-Signature: v1=<hmac-sha256-hex>`
+        - `Xb-EduVault-Timestamp: <unix seconds>`
+        -  `Xb-EduVault-Event-Id: <stable event id>`
 
-  # ---------------------------------------------------------------------------
-  # Notifications
-  # ---------------------------------------------------------------------------
-  /api/notifications:
-    get:
-      summary: List the caller's notifications, newest first
-      operationId: listNotifications
-      tags: [Notifications]
-      security:
-        - cookieAuth: []
+        The signature is computed over the canonical string
+        `<timestamp>.<raw request body>` using HMAC-SHA256 with the provider
+        secret configured via `WEBHOOK_<provider>_SECRET`. Timestamps outside
+        the configured replay window (default 300 seconds) are rejected.
+        Event ids are persisted so replaying a valid event returns 200 with
+        `duplicate: true` and performs no side effects.
+      tags: [Webhooks]
       parameters:
-        - name: unread
-          in: query
-          schema:
-            type: boolean
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 50
-            default: 20
-      responses:
-        "200":
-          description: Notifications and unread count
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NotificationList"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-    patch:
-      summary: Mark the caller's notifications read
-      operationId: markNotificationsRead
-      tags: [Notifications]
-      security:
-        - cookieAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ids:
-                  type: array
-                  maxItems: 100
-                  items:
-                    type: string
-                all:
-                  type: boolean
-      responses:
-        "200":
-          description: Number of notifications changed to read
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [updated]
-                properties:
-                  updated:
-                    type: integer
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  # ---------------------------------------------------------------------------
-  # Market materials (public browse)
-  # ---------------------------------------------------------------------------
-  /api/market-materials:
-    get:
-      summary: Browse publicly listed materials
-      operationId: browseMarketMaterials
-      tags: [Market]
-      security: []
-      parameters:
-        - name: category
-          in: query
+        - name: provider
+          in: path
+          required: true
           schema:
             type: string
-        - name: cursor
-          in: query
-          description: Pagination cursor (MongoDB ObjectId of the last seen item)
+            enum: [stellar, stripe, internal]
+        - name: Xb-EduVault-Signature
+          in: header
+          required: true
           schema:
             type: string
-        - name: limit
-          in: query
+            pattern: '^v1=[0-9a-f]{64}$'
+        - name: Xb-EduVault-Timestamp
+          in: header
+          required: true
           schema:
-            type: integer
-            default: 20
-            minimum: 1
-            maximum: 100
-      responses:
-        "200":
-          description: Paginated list of materials
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Material"
-                  nextCursor:
-                    type: string
-                    nullable: true
-
-  # ---------------------------------------------------------------------------
-  # Upload
-  # ---------------------------------------------------------------------------
-  /api/upload:
-    post:
-      summary: Upload a material file to Pinata / IPFS
-      operationId: uploadMaterialFile
-      tags: [Upload]
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file:
-                  type: string
-                  format: binary
-              required: [file]
-      responses:
-        "200":
-          description: Upload successful — returns the IPFS / gateway URL
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  url:
-                    type: string
-                    format: uri
-                  cid:
-                    type: string
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  # ---------------------------------------------------------------------------
-  # Purchase
-  # ---------------------------------------------------------------------------
-  /api/purchase:
-    get:
-      summary: List the authenticated user's purchases
-      operationId: listPurchases
-      tags: [Purchase]
-      responses:
-        "200":
-          description: Purchase history
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Purchase"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-    post:
-      summary: Record a material purchase after on-chain payment
-      operationId: recordPurchase
-      tags: [Purchase]
+            type: string
+            pattern: '^[0-9]{1,10}$'
+        - name: Xb-EduVault-Event-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              properties:
-                materialId:
-                  type: string
-                signedXdr:
-                  type: string
-                email:
-                  type: string
-              required: [materialId]
+              additionalProperties: true
       responses:
-        "201":
-          description: Purchase recorded
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Purchase"
         "200":
-          description: Existing purchase returned when the buyer already owns the material
+          description: Event accepted (or already processed).
           content:
             application/json:
               schema:
-                type: object
+                $ref: "#/components/schemas/WebhookAcknowledgement
         "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /api/transactions/history:
-    get:
-      summary: Aggregate account purchase and Stellar transaction history
-      operationId: listTransactionHistory
-      tags: [Purchase]
-      parameters:
-        - name: page
-          in: query
-          schema:
-            type: integer
-            default: 1
-            minimum: 1
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-            minimum: 1
-            maximum: 100
-      responses:
-        "200":
-          description: Paginated merged history from MongoDB and Horizon
+          description: Missing or malformed signature headers or payload.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  page:
-                    type: integer
-                  limit:
-                    type: integer
-                  hasMore:
-                    type: boolean
-                  totals:
-                    type: object
-                    properties:
-                      purchases:
-                        type: integer
-                  records:
-                    type: array
-                    items:
-                      type: object
+                $ref: "#/components/schemas/WebhookError"
         "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  # ---------------------------------------------------------------------------
-  # Entitlements
-  # ---------------------------------------------------------------------------
-  /api/entitlements:
-    get:
-      summary: List materials the authenticated user is entitled to download
-      operationId: listEntitlements
-      tags: [Entitlements]
-      responses:
-        "200":
-          description: List of entitlements
+          description: Signature verification failed.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Entitlement"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  # ---------------------------------------------------------------------------
-  # User profile
-  # ---------------------------------------------------------------------------
-  /api/profile:
-    get:
-      summary: Get the authenticated user's profile
-      operationId: getProfile
-      tags: [Profile]
-      responses:
-        "200":
-          description: User profile
+                $ref: "#/components/schemas/WebhookError"
+        "404":
+          description: Unsupported provider.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserProfile"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-    patch:
-      summary: Update the authenticated user's profile
-      operationId: updateProfile
-      tags: [Profile]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                displayName:
-                  type: string
-                  maxLength: 80
-                bio:
-                  type: string
-                  maxLength: 500
-                institution:
-                  type: string
-                country:
-                  type: string
-                twitterUrl:
-                  type: string
-                githubUrl:
-                  type: string
-                websiteUrl:
-                  type: string
-                payoutWalletAddress:
-                  type: string
-                preferredPayoutCurrency:
-                  type: string
-                payoutNotes:
-                  type: string
-      responses:
-        "200":
-          description: Updated profile
+                $ref: "#/components/schemas/WebhookError"
+        "409":
+          description: Event timestamp is outside the replay window.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserProfile"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+                $ref: "#/components/schemas/WebhookError"
+        "500":
+          description: Unexpected server error while processing the event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookError"

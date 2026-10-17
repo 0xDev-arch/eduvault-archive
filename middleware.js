@@ -15,13 +15,74 @@
 // <script> in this app (the theme-init snippet) via a `nonce` prop.
 
 import { NextResponse } from 'next/server';
+import crypto from 'node:crypto';
 
+const WEBHOOK_MAX_SKEW_MS = 5 * 60 * 1000;
 function generateNonce() {
   // 16 random bytes, base64-encoded — the standard nonce size used in
   // Next.js's own strict-CSP documentation/examples.
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return Buffer.from(bytes).toString('base64');
+}
+
+function timingSafeEqualHex(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a, 'hex');
+  const bufB = Buffer.from(b, 'hex');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function verifyWebhookSignature(rawBody, signatureHeader, secret) {
+  if (!signatureHeader || !secret) return false;
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  return timingSafeEqualHex(expected, signatureHeader);
+}
+
+function isStaleTimestamp(timestampHeader) {
+  const ts = Number(timestampHeader);
+  if (!Number.isFinite(ts)) return true;
+  return Math.abs(Date.now() - ts) > WEBHOOK_MAX_SKEW_MS;
+}
+
+async function handleWebhook(request) {
+  const rawBody = await request.text();
+  const signature = request.headers.get('x-webhook-signature');
+  const timestamp = request.headers.get('x-webhook-timestamp');
+  const eventId = request.headers.get('x-webhook-id');
+  const secret = process.env.WEBHOOK_SIGNING_SECRET;
+
+  if (!eventId) {
+    return NextResponse.json(
+      { error: 'malformed_event', message: 'Missing x-webhook-id header' },
+      { status: 400 }
+    );
+  }
+
+  if (isStaleTimestamp(timestamp)) {
+    return NextResponse.json(
+      { error: 'stale_event', message: 'Timestamp outside allowed replay window' },
+      { status: 400 }
+    );
+  }
+
+  if (!verifyWebhookSignature(rawBody, signature, secret)) {
+    return NextResponse.json(
+      { error: 'invalid_signature', message: 'Signature verification failed' },
+      { status: 401 }
+    );
+  }
+
+  const { isDuplicateEvent } = await import('./src/lib/webhookReplayStore.js');
+  if (await isDuplicateEvent(eventId)) {
+    return NextResponse.json(
+      { error: 'duplicate_event', message: 'Event already processed', eventId },
+      { status: 409 }
+    );
+  }
+
+  return NextResponse.json({ ok: true, eventId }, { status: 200 });
 }
 
 export function middleware(request) {
@@ -51,6 +112,10 @@ export function middleware(request) {
     const url = request.nextUrl.clone();
     url.pathname = '/';
     return NextResponse.redirect(url);
+  }
+
+  if (request.nextUrl.pathname.startsWith('/api/webhooks/')) {
+    return handleWebhook(request);
   }
 
   const response = NextResponse.next({

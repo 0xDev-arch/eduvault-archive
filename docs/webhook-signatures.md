@@ -1,9 +1,20 @@
 # Webhook Signatures
 
+> **Canonical serialization:** Signed webhook payloads are serialized using the
+> canonical JSON rules defined in
+> [`docs/canonical-serialization.md`](canonical-serialization.md). The
+> `rawBody` you verify against MUST be the canonical byte sequence.
+
 EduVault delivers outbound webhooks to creator-configured endpoints for
 purchase, refund, entitlement, and dispute lifecycle events. Every delivery
 is signed so the receiving server can verify the payload was produced by
 EduVault and has not been tampered with in transit.
+
+EduVault also accepts inbound webhooks and integration callbacks from
+supported providers. These inbound requests are verified with the same
+HMAC-SHA256 scheme and the same replay window, and their event IDs are
+persisted to prevent replays. See
+[Inbound Webhook Verification](@inbound-webhook-verification).
 
 See [`docs/API_REFERENCE.md`](API_REFERENCE.md) for the stable error codes
 (`EVT_WEBHOOK_*`) returned when signature verification or delivery fails.
@@ -22,15 +33,23 @@ signingInput = timestamp + "." + rawBody
 where:
 
 - `timestamp` is the Unix epoch seconds value sent in the
-  `X-EduVault-Timestamp` header (decimal string, no fractional part).
+  `X-EduVault-Timestamp` (or provider-equivalent) header (decimal string,
+  no fractional part).
 - `rawBody` is the **exact bytes** of the HTTP request body before any
   parsing.
 
+The `rawBody` is produced by the canonical serializer, which guarantees that
+equivalent payloads (same logical values, different key order, whitespace,
+or casing) produce byte-identical output. Verifiers MUST NOT re-serialize
+the parsed JSON to reconstruct `rawBody`; doing so may produce a different
+byte sequence and cause `EVT_WEBHOOK_001`.
+
 The HMAC key is the creator's `webhookSigningSecret` stored in the `users`
-collection. During secret rotation, both the current secret
-(`webhookSigningSecret`) and the previous one (`webhookSigningSecretPrevious`)
+collection. For inbound provider webhooks, the key is the provider secret
+from the integration configuration. During secret rotation, both the current
+secret (`webhookSigningSecret`) and the previous one (`webhookSigningSecretPrevious`)
 are active for a short overlap window; the delivery is accepted if **either**
-signature verifies (see [Secret Rotation](#secret-rotation)).
+signature verifies (see [Secret Rotation](@secret-rotation)).
 
 ---
 
@@ -38,13 +57,13 @@ signature verifies (see [Secret Rotation](#secret-rotation)).
 
 Every webhook delivery includes these headers:
 
-| Header                 | Example              | Description                                                 |
-| ---------------------- | -------------------- | ----------------------------------------------------------- |
+| Header                 | Example              | Description                                             |
+| ---------------------- | ------------------- | ------------------------------------------------------------ |
 | `X-EduVault-Signature` | `sha256=a1b2c3...`   | Hex-encoded HMAC-SHA256 signature, prefixed with `sha256=`. |
 | `X-EduVault-Timestamp` | `1727222400`         | Unix epoch seconds at delivery time.                        |
-| `X-EduVault-Event`     | `purchase.completed` | Event type (matches the `event` field in the payload body). |
+| `X-EduVault-Event`     | `purchase.completed` | Event type (matches the `event` field in the payload body).     |
 | `X-EduVault-Delivery`  | `01j9abc...`         | Globally unique delivery ID for idempotency checks.         |
-| `Content-Type`         | `application/json`   | Always JSON.                                                |
+| `Content-Type`         | `application/json`   | Always JSON.                                                 |
 
 ---
 
@@ -55,7 +74,8 @@ Every webhook delivery includes these headers:
 
 2. **Reject stale timestamps** — if `|now() - timestamp| > 300` seconds
    (5 minutes), reject with HTTP 401 and error code `EVT_WEBHOOK_002`.
-   This prevents replay attacks.
+   This prevents replay attacks. A timestamp that is not a valid integer is
+   treated as stale (`EVT_WEBHOOK_002`).
 
 3. **Compute expected signature**:
 
@@ -68,9 +88,15 @@ Every webhook delivery includes these headers:
    timing attacks. Do **not** use a naive string equality (`==`).
 
 5. **Accept if either secret matches** during a rotation window (see
-   [Secret Rotation](#secret-rotation)).
+   [Secret Rotation](@secret-rotation)).
 
-6. **Return 200** on success. Any non-2xx response is treated as a delivery
+6. **Deduplicate by event ID.** After the signature and timestamp are
+   verified, persist the event ID to the processed-events store before
+   applying side effects. If the event ID was already processed, return
+   HTTP 200 without repeating side effects (see
+   [Idempotency and Replay Prevention](@idempotency-and-replay-prevention)).
+
+7. **Return 200** on success. Any non-2xx response is treated as a delivery
    failure and triggers retries with exponential backoff.
 
 ### Reference Implementation (Node.js)
@@ -106,6 +132,10 @@ export function verifyWebhookSignature(
   // Step 2: Build the signing input.
   const signingInput = `${timestamp}.${rawBody}`;
 
+  // NOTE: `rawBody` must already be the canonical serialization. Do not
+  // call JSON.stringify(JSON.parse(rawBody)) here — that would change the
+  // byte sequence and break verification.
+
   // Step 3: Compute expected signature(s).
   function computeSig(key) {
     return (
@@ -125,9 +155,14 @@ export function verifyWebhookSignature(
 }
 ```
 
+The function above returns a boolean for the cryptographic check. The HTTP
+handler MUST distinguish between a stale timestamp and a bad signature so it
+can return the correct structured error code. The reference handler below
+shows the complete flow including replay deduplication.
+
 ### Reference Implementation (Python)
 
-```python
+```py
 import hashlib
 import hmac
 import time
@@ -151,6 +186,10 @@ def verify_webhook_signature(
 
     signing_input = f"{timestamp}.".encode() + raw_body
 
+    # NOTE: raw_body must already be the canonical serialization. Do not
+    # re-serialize the parsed JSON — that would change the byte sequence
+    # and break verification.
+
     def compute(key: str) -> str:
         mac = hmac.new(key.encode(), signing_input, hashlib.sha256)
         return "sha256=" + mac.hexdigest()
@@ -161,6 +200,237 @@ def verify_webhook_signature(
         return True
     return False
 ```
+
+---
+
+## Inbound Webhook Verification
+
+Inbound webhooks and integration callbacks arrive at the EduVault API
+boundary and are processed by the webhook intgestion handler. The flow is
+strictly ordered so that no side effect is applied before the request is
+authenticated and deduplicated:
+
+1. Read the raw request body as a Buffer before any JSON parsing.
+2. Validate the required headers are present and well-formed.
+3. Reject stale timestamps (`EVT_WEBHOOK_002`).
+4. Verify the signature in constant time (`EVT_WEBHOOK_001`).
+5. Parse the JSON and validate the envelope shape (`EVT_WEBHOOK_009` for
+   malformed or duplicate-key payloads).
+6. Deduplicate by event ID and apply side effects atomically.
+
+The event ID is the `deliveryId` in the payload envelope (for providers
+that do not use the EduVault envelope, the provider's event ID header is
+used). The ID is scoped to the provider and the creator so two different
+creators can safely receive the same provider event ID.
+
+### Structured Errors
+
+Invalid, replayed, and malformed inbound webhooks return a stable JSON
+error envelope:
+
+```json
+{
+  "error": {
+    "code": "EVT_WEBHOOK_001",
+    "message": "Invalid webhook signature.",
+    "details": {
+      "reason": "signature_mismatch"
+    }
+  }
+}
+```
+
+| Status | Code               | When it is returned                                         |
+| ------ | ------------------- | --------------------------------------------------------------- |
+| 401   | `EVT_WEBHOOK_001`   | Signature header is missing, malformed, or does not match any active secret. |
+| 401   | `EVT_WEBHOOK_002`   | Timestamp header is missing, non-integer, or outside the 300s window.    |
+| 409   | `EVT_WEBHOOK_003`   | Event ID was already processed (duplicate).                        |
+| 400   | `EVT_WEBHOOK_009`   | Payload is not valid canonical JSON or contains duplicate keys.      |
+
+Duplicate deliveries are idempotent: a duplicate valid event is either
+acknowledged with HTTP 200 and no side effects, **or** rejected with 409
+`EVT_WEBHOOK_003`, depending on the provider's retry semantics. The EduVault
+default is to return 409 so duplicates are visible in monitoring; providers
+that retry on 409 can be configured to receive 200 instead.
+
+## Idempotency and Replay Prevention
+
+Processed event IDs are persisted in the `webhookProcessedEvents` collection.
+Each document is written with a unique compound index on
+`(provider, scopeId, eventId)` so the insert is atomic and concurrent
+butters cannot both succeed.
+
+Document shape:
+
+```json
+{
+  "provider": "eduvault",
+  "scopeId": "creator_123",
+  "eventId": "01j9abc123",
+  "eventType": "purchase.completed",
+  "receivedAt": "2024-09-25T00:00:00.000Z",
+  "payloadHash": "0b0b0b0b...",
+  "expiresAt": "2024-10-25T00:00:00.000Z"
+}
+```
+
+Implementation rules:
+
+- The dedupe record is inserted **within the same transaction** as the
+  side effects. If the insert conflicts on the unique index, the
+  transaction is aborted and the request is treated as a duplicate.
+- The store is authoritative: in-memory caches may optimize the check but
+  MUST not replace the persistent unique constraint.
+- Records are retained for at least the maximum provider retry window (30
+  days by default) and then expire via `expiresAt`.
+- Stale events are rejected before the dedupe check, so an attacker cannot
+  poison the dedupe store with unauthenticated event IDs.
+
+### Reference Handler (Node.js)
+
+```js
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+const TOLERANCE_SEC = 300;
+
+function computeSignature(secret, signingInput) {
+  return (
+    "sha256=" + createHmac("sha256", secret).update(signingInput).digest("hex")
+  );
+}
+
+function safeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+function errorResponse(status, code, message, reason) {
+  return {
+    status,
+    body: { error: { code, message, details: reason ? { reason } : {} } },
+  };
+}
+
+/**
+ * Handle an inbound webhook. Returns a structured result that the HTTP adapter
+ * translates into a response. Side effects are applied only after verification
+ * and deduplication succeed.
+ *
+ * @param {object} req
+ * @param {Buffer} req.rawBody
+ * @param {Record<string, string?} req.headers
+ * @param {object} deps
+ * @param {(provider: string, scopeId: string) => Promise<{secret: string, prevSecret?: string | null}>} deps.loadSecret
+ * @param {(key: object) => Promise<boolean>} deps.recordEvent Inserts the dedupe record; resolves false on conflict.
+ * @param {(key: object) => Promise<void>} deps.applySideEffects
+ */
+export async function handleInboundWebhook(req, deps) {
+  const headers = req.headers ?? {};
+  const timestamp = headers["x-eduvault-timestamp"];
+  const signature = headers["x-eduvault-signature"];
+  const provider = headers["x-eduvault-provider"] ?? "eduvault";
+  const scopeId = headers["x-eduvault-scope-id"];
+
+  if (!timestamp || !signature || !scopeId) {
+    return errorResponse(
+      401,
+      "EVT_WEBHOOK_001",
+      "Invalid webhook signature.",
+      "missing_headers",
+    );
+  }
+
+  // Stale timestamps are rejected before any cryptographic work.
+  const ts = Number(timestamp);
+  if (!Number.isInteger(ts) || Math.abs(Date.now() / 1000 - ts) > TOLERANCE_SEC) {
+    return errorResponse(
+      401,
+      "EVT_WEBHOOK_002",
+      "Webhook timestamp is stale.",
+      "stale_timestamp",
+    );
+  }
+
+  const { secret, prevSecret = null } = await deps.loadSecret(provider, scopeId);
+  const rawBody = req.rawBody.toString("utf=8");
+  const signingInput = `${timestamp}.${rawBody}`;
+
+  const matches =
+    safeEqual(computeSignature(secret, signingInput), signature) ||
+    (prevSecret !== null &&
+      safeEqual(computeSignature(prevSecret, signingInput), signature));
+
+  if (!matches) {
+    return errorResponse(
+      401,
+      "EVT_WEBHOOK_001",
+      "Invalid webhook signature.",
+      "signature_mismatch",
+    );
+  }
+
+  // Parse only after the signature has been verified.
+  let payload;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return errorResponse(
+      400,
+      "EVT_WEBHOOK_009",
+      "Webhook payload is not valid JSON.",
+      "malformed_payload",
+    );
+  }
+
+  const eventId = payload.deliveryId ?? headers["x-eduvault-delivery"];
+  if (typeof eventId !== "string" || eventId.length === 0) {
+    return errorResponse(
+      400,
+      "EVT_WEBHOOK_009",
+      "Webhook payload is missing an event ID.",
+      "missing_event_id",
+    );
+  }
+
+  const key = { provider, scopeId, eventId };
+  const inserted = await deps.recordEvent(key);
+  if (!inserted) {
+    return errorResponse(
+      409,
+      "EVT_WEBHOOK_003",
+      "Webhook event was already processed.",
+      "duplicate_event",
+    );
+  }
+
+  await deps.applySideEffects(key, payload);
+  return { status: 200, body: { ok: true } };
+}
+```
+
+The adapter that wires this handler into the app MUST provide the raw request
+body (for example by disabling the global JSON body parser for the webhook
+route and reading the stream into a Buffer). A re-serialized body will fail
+verification and return `EVT_WEBHOOK_001`.
+
+---
+
+## Secret Rotation
+
+To rotate a signing secret without dropping deliveries:
+
+1. Move the current value of `webhookSigningSecret` into
+   `webhookSigningSecretPrevious`.
+2. Set `webhookSigningSecret` to the new secret.
+3. Verify deliveries using both secrets for the overlap window (at
+   least the maximum retry duration, typically 15 minutes).
+4. Clear `webhookSigningSecretPrevious` once the overlap window ends.
+
+Rotation is operationally safe because verification accepts either secret
+during the overlap. Never remove the previous secret before the overlap
+window closes, or in-flight deliveries signed with the old secret will fail
+with `EVT_WEBHOOK_001`.
 
 ---
 
@@ -177,13 +447,40 @@ All event payloads follow a common envelope:
 }
 ```
 
-| Field        | Type     | Description                                              |
-| ------------ | -------- | -------------------------------------------------------- |
+The envelope is serialized canonically: object keys are sorted lexicographically
+by Unicode code point, strings are NFC-normalized, numbers use the shortest
+round-trippable decimal form, and no insignificant whitespace is emitted.
+See [`docs/canonical-serialization.md`](canonical-serialization.md) for the
+full rules and normalization table.
+
+| Field        | Type     | Description                                        |
+| ------------ | -------- | ----------------------------------------------------------- |
 | `event`      | `string` | Event type identifier (see [Event Types](#event-types)). |
 | `deliveryId` | `string` | Unique delivery ID. Use for idempotency deduplication.   |
 | `timestamp`  | `number` | Unix epoch seconds matching `X-EduVault-Timestamp`.      |
 | `data`       | `object` | Event-specific payload.                                  |
 
+### Normalization rules for `data`
+
+The envelope and every nested `data` object must be serialized canonically
+before hashing, signing, or comparison. See
+[Canonical Serialization](#canonical-serialization).
+
+- **Key ordering:** all object keys are sorted lexicographically before
+  serialization. Producers and consumers MUST NOT rely on insertion order.
+- **Whitespace:** no spaces, tabs, or newlines are emitted between tokens.
+- **Casing:** event names, status enums, and resolution enums are
+  case-sensitive and MUST be emitted in their canonical form (e.g.
+  `purchase.completed`, `Active`, `RefundBuyer`). Free-text fields are
+  preserved verbatim after NFC normalization.
+- **Numeric precision:** monetary amounts (`grossAmount`, `platformFee`,
+  `sellerNet`, `unitPrice`, `totalPaid`, `refundAmount`) are serialized as
+  **decimal strings** of the smallest indivisible unit. They MUST NOT be
+  emitted as JSON numbers, to avoid IEEE754 precision loss.
+- **Ledger numbers** (`openedLedger`, `resolvedLedger`) are integers and
+  MUST be emitted as JSON numbers within the safe integer range.
+- **Hashes and addresses** (`metadataHash`, `rightsHash`, `materialId`,
+  `*Address`, `asset`) are lowercase hex or canonical Stellar strkey form.
 ---
 
 ## Event Types
@@ -303,74 +600,54 @@ Fired when a creator updates a material's price or payout configuration.
 
 ---
 
-## Retry Policy
+## Canonical Serialization
 
-Failed deliveries (non-2xx response or timeout) are retried with **exponential
-backoff**:
+Payloads that are hashed, signed, compared, or verified must be serialized
+canonically so that equivalent payloads always produce identical bytes. This
+applies to webhook signing inputs, `metadataHash` / `rightsHash` values, and any payload stored or re-verified by EduVault.
 
-| Attempt | Delay     |
-| ------- | --------- |
-| 1       | immediate |
-| 2       | 30 s      |
-| 3       | 5 min     |
-| 4       | 30 min    |
-| 5       | 2 h       |
+### Rules
 
-After 5 failures the delivery is moved to the dead-letter queue and no further
-automatic retries are attempted. Creators can inspect and replay dead-lettered
-events from the creator dashboard.
+1. **UTF-8 encoding.** All strings are encoded as UTF-8. No BOM.
 
-Delivery timeout per attempt: **10 seconds**.
+2. **Object key ordering.** Object keys are sorted by Unicode code point
+   (lexicographic, ascending) at every nesting level. Arrays preserve their
+   original order.
 
----
+3. **No insignificant whitespace.** No spaces, tabs, or newlines between
+   tokens. Separators are exactly `,` and `:`.
 
-## Secret Rotation
+4. **String normalization.** Strings are normalized to Unicode NFC. Control
+   characters are escaped using the shortest valid JSON escape (`\n`, `\t`,
+   `\"`, `\\`, `\u00XX`). Non-ASCII characters are emitted as literal UTF-8,
+   not `\u` escapes.
 
-To rotate a webhook signing secret without a delivery gap:
-
-1. Call `PATCH /api/profile` with `{ "rotateWebhookSecret": true }`.
-2. EduVault atomically:
-   - moves the current `webhookSigningSecret` to `webhookSigningSecretPrevious`.
-   - generates a new `webhookSigningSecret`.
-   - records `webhookSigningSecretRotatedAt`.
-3. For the next **24 hours**, both secrets are accepted during signature
-   verification (code `EVT_WEBHOOK_008` is **not** an error during this
-   window — it is informational only).
-4. After 24 hours, `webhookSigningSecretPrevious` is cleared and only the new
-   secret is accepted.
-
-**Action required:** update your endpoint to use the new secret before the
-24-hour overlap window closes.
+5. **Key casing.** Keys are case-sensitive and preserved as-is. Duplicate
+   keys (case-insensitive collision) are rejected with `EVT_WEBHOOK_009`.
 
 ---
 
-## Error Codes
+## Testing and Validation
 
-Webhook-related failure codes from `docs/API_REFERENCE.md`:
+The signature and replay logic is covered by automated tests in
+`tests/webhook-signatures.test.js`. Run them with:
 
-| Code              | Condition                                                            |
-| ----------------- | -------------------------------------------------------------------- |
-| `EVT_WEBHOOK_001` | Signature did not verify.                                            |
-| `EVT_WEBHOOK_002` | Timestamp outside the 5-minute replay-prevention window.             |
-| `EVT_WEBHOOK_003` | Request body could not be parsed as JSON.                            |
-| `EVT_WEBHOOK_004` | `event` field does not match a known event type.                     |
-| `EVT_WEBHOOK_005` | Creator endpoint returned non-2xx.                                   |
-| `EVT_WEBHOOK_006` | Creator endpoint timed out.                                          |
-| `EVT_WEBHOOK_007` | Delivery rate limit exceeded for this endpoint.                      |
-| `EVT_WEBHOOK_008` | Both current and previous secrets are active (rotation in progress). |
+```bash
+npm test -- tests/webhook-signatures.test.js
+```
 
----
+The suite covers:
+-
+ **valid** — a fresh timestamp and correct signature are accepted.
+- **rotation** — a signature made with the previous secret is accepted.
+- **invalid** — a tampered body or wrong secret is rejected with
+  `EVT_WEBHOOK_001`.
+- **stale** — a timestamp outside the 300s window is rejected with
+  `EVT_WEBHOOK_002`.
+- **duplicate** — replaying a valid event returns `EVT_WEBHOOK_003` and does not
+  repeat side effects.
+- **malformed** — non-JSON bodies, missing headers, and duplicate keys are
+  rejected with `EVT_WEBHOOK_009`.
 
-## Security Notes
-
-- **Always verify signatures** before processing webhook data. An endpoint
-  that skips verification could be triggered by any HTTP client.
-- **Use `rawBody`** — JSON parsers may normalise key order or whitespace,
-  producing a different byte sequence than the signed input. Capture the raw
-  bytes before parsing.
-- **Constant-time comparison** is mandatory. Variable-time string equality
-  leaks information about how many bytes matched, enabling timing attacks.
-- **Reject stale timestamps** — without the 5-minute window check, an attacker
-  who captures a valid delivery can replay it indefinitely.
-- Secrets are **never logged** or returned in API responses. If a secret is
-  compromised, rotate it immediately using `PATCH /api/profile`.
+The tests use fixtures in `tests/fixtures/webhooks/` that include the
+canonical raw body and the corresponding signature for a fixed timestamp.
