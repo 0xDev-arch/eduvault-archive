@@ -36,6 +36,8 @@
     "indexer:deadletter": "node scripts/indexer-deadletter.mjs",
     "monitor:journey": "node scripts/journey-monitor.mjs",
     "monitor:journey:dry": "node scripts/journey-monitor.mjs --dry-run",
+    "monitor:synthetic": "node scripts/synthetic-monitor.mjs",
+    "monitor:synthetic:dry": "node scripts/synthetic-monitor.mjs --dry-run",
     "verify:restore": "node scripts/verify-restore.mjs",
     "support:expire": "node scripts/expire-support-sessions.mjs"
   },
