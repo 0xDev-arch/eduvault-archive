@@ -8,10 +8,11 @@ info:
     All write endpoints require a valid `auth_token` cookie issued by the
     `/api/auth` login flow (HS256 JWT signed with `JWT_SECRET`).
 
-    Inbound webhooks and integration callbacks are verified with an HMAC-SHA256
-    signature over the canonical `<timestamp>.<body>`
-    payload and are rejected when the timestamp falls outside the configured
-    replay window or when the event id has already been processed.
+    Inbound webhooks and integration callbacks are verified cryptographically.
+    Every delivery must carry a signature header and a timestamp. Requests
+    with an invalid signature, a stale timestamp (outside the configured
+    replay window), or an already-processed event ID are rejected with a
+    structured error response.
 
 servers:
   - url: "http://localhost:3000"
@@ -26,6 +27,54 @@ components:
       in: cookie
       name: auth_token
 
+  parameters:
+    WebhookSignature:
+      name: X-EduVault-Signature
+      in: header
+      required: true
+      description: |
+        HMAC-SHA256 signature over the canonical string
+        `<timestamp>.<raw_body>`, formatted as `v1=<hex_digest>`.
+      schema:
+        type: string
+        pattern: '^v1=[0-9a-f]{64}$'
+        example: "v1=9f2c4e1a7b3d5e6f7890a1b2c3d4e5f60718292a3b4c5d6e7f890a1b2c3d4e5f"
+    WebhookTimestamp:
+      name: X-EduVault-Timestamp
+      in: header
+      required: true
+      description: |
+        Unix epoch timestamp in seconds of when the delivery was signed.
+        Requests whose timestamp is outside the configured replay window
+        (default 300 seconds) are rejected as stale.
+      schema:
+        type: string
+        pattern: '^[0-9]{1,10}$'
+        example: "1700000000"
+    WebhookEventId:
+      name: X-EduVault-Event-Id
+      in: header
+      required: true
+      description: |
+        Stable identifier for the event. Processed event IDs are persisted
+        so a duplicate delivery is acknowledged without repeating side effects.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+        example: "evt_01HZW93A2B4C5D6E7F8G0"
+    WebhookProvider:
+      name: X-EduVault-Provider
+      in: header
+      required: false
+      description: |
+        Optional provider identifier (e.g. `payments`, `integrations`).
+        Selects which signing secret is used to verify the delivery.
+      schema:
+        type: string
+        pattern: '^[a-z0-9_-]{1,64}$'
+        example: "payments"
+
   schemas:
     Error:
       type: object
@@ -39,13 +88,13 @@ components:
     WebhookError:
       type: object
       description: |
-        Structured error returned by the webhook endpoint. The `code` is a
-        stable machine-readable value so clients can react without parsing
-        the human-readable message.
+        Structured error returned for webhook deliveries that fail verification.
+        The `code` field is a stable machine-readable reason code.
       required: [error, code]
       properties:
         error:
           type: string
+          description: Human-readable explanation.
         code:
           type: string
           enum:
@@ -55,30 +104,28 @@ components:
             - invalid_timestamp
             - duplicate_event
             - malformed_payload
-            - unknown_provider
-            - internal_error
+          description: Stable machine-readable reason code.
         details:
           type: object
           additionalProperties: true
+          description: Optional context (e.g. eventId, timestamp, skew, replayWindowSeconds).
 
     WebhookAcknowledgement:
       type: object
-      description: |
-        Returned when an event is accepted. `duplicate` is true when the event
-        was already processed and no side effects were repeated.
-      required: [received, duplicate, eventId]
+      required: [status, eventId]
       properties:
-        received:
-          type: boolean
-        duplicate:
-          type: boolean
+        status:
+          type: string
+          enum: [processed, duplicate]
+          description: |
+            `processed` when the event was handled for the first time.
+            `duplicate` when the event ID was already recorded and no
+            side effects were repeated.
         eventId:
           type: string
-        provider:
+        receivedAt:
           type: string
-        processedRecords:
-          type: integer
-          description: Number of records affected by this event (0 for duplicates).
+          format: date-time
 
     Material:
       type: object
@@ -179,11 +226,11 @@ components:
             type: string
         tableOfContents:
           type: array
-          items:
+          items
             type: string
         sampleNotes:
           type: array
-          items:
+          items
             type: string
 
     ImportRowError:
@@ -243,7 +290,7 @@ components:
           type: integer
         invalidRows:
           type: array
-          items:
+          items
             $ref: "#/components/schemas/ImportRowError"
         summary:
           type: object
@@ -338,7 +385,7 @@ components:
       properties:
         notifications:
           type: array
-          items:
+          items
             $ref: "#/components/schemas/Notification"
         unreadCount:
           type: integer
@@ -424,12 +471,12 @@ components:
         affectedRecords:
           type: array
           description: Material ids believed to be affected.
-          items
+          items:
             type: string
         affectedOperations:
           type: array
           description: Operation types that were disrupted.
-          items:
+          items
             type: string
             enum: [purchase, import, download, entitlement]
         severity:
@@ -478,7 +525,7 @@ components:
           properties:
             affectedUsers:
               type: array
-              items
+              items:
                 type: string
             affectedRecords:
               type: array
@@ -514,7 +561,7 @@ components:
     ReceiptPayload:
       type: object
       description: |
-        Canonical, deterministic receipt payload. The `SIGNATURE_VERSION` and
+        Canonical, deterministic receipt payload. The `SKsGNATURE_VERSION` and
         `SIGNATURE_ALGORITHM` are constants so consumers can recreate the
         canonical bytes and verify the HMAC-SHA256 signature independently.
       required:
@@ -528,47 +575,31 @@ paths:
       operationId: receiveWebhook
       summary: Receive a signed integration webhook
       description: |
-        Verifies an inbound webhook from a supported provider and applies its
-        side effects at most once.
+        Verifies the delivery signature (HMAC-SHA256 over `<timestamp>.<raw_body>`),
+        enforces the replay window on the supplied timestamp, and deduplicates
+        by persisting the event ID before running side effects.
 
-        Requests must include:
-        - `Xb-EduVault-Signature: v1=<hmac-sha256-hex>`
-        - `Xb-EduVault-Timestamp: <unix seconds>`
-        -  `Xb-EduVault-Event-Id: <stable event id>`
-
-        The signature is computed over the canonical string
-        `<timestamp>.<raw request body>` using HMAC-SHA256 with the provider
-        secret configured via `WEBHOOK_<provider>_SECRET`. Timestamps outside
-        the configured replay window (default 300 seconds) are rejected.
-        Event ids are persisted so replaying a valid event returns 200 with
-        `duplicate: true` and performs no side effects.
-      tags: [Webhooks]
+        Error responses use the `WebhookError` schema with a stable `code`
+        so callers can branch on the failure reason:
+        - 401 `missing_signature` / `invalid_signature`
+        - 400 `invalid_timestamp` / `malformed_payload` / `missing_event_id`
+        - 408 `stale_timestamp`
+        - 200 with `status: duplicate` for an already-processed event
+      tags:
+        - Webhooks
       parameters:
         - name: provider
           in: path
           required: true
+          description: Provider identifier used to select the signing secret.
           schema:
             type: string
-            enum: [stellar, stripe, internal]
-        - name: Xb-EduVault-Signature
-          in: header
-          required: true
-          schema:
-            type: string
-            pattern: '^v1=[0-9a-f]{64}$'
-        - name: Xb-EduVault-Timestamp
-          in: header
-          required: true
-          schema:
-            type: string
-            pattern: '^[0-9]{1,10}$'
-        - name: Xb-EduVault-Event-Id
-          in: header
-          required: true
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 256
+            pattern: '^[a-z0-9_-]{1,64}$'
+            example: "payments"
+        - $ref: "#/components/parameters/WebhookSignature"
+        - $ref: "#/components/parameters/WebhookTimestamp"
+        - $ref: "#/components/parameters/WebhookEventId"
+        - $ref: "#/components/parameters/WebhookProvider"
       requestBody:
         required: true
         content:
@@ -576,40 +607,60 @@ paths:
             schema:
               type: object
               additionalProperties: true
+            example:
+              id: "evt_01HZW93A2B4C5D6E7F8G0"
+              type: "payment.confirmed"
+              data:
+                purchaseId: "66f1a2b3c4d5e6f7890a1b2c"
+                materialId: "66f1a2b3c4d5e6f7890a1b2d"
+                buyerAddress: "GBADRESS4WN4YXWM3WXXYZ7ZWXYZ7ZWXYZ7ZWXYZ7ZWXYZ7ZWXYZ"
       responses:
         "200":
-          description: Event accepted (or already processed).
+          description: Event accepted. @status is `processed` for a first delivery or `duplicate` when the event ID was already recorded.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WebhookAcknowledgement
+                $ref: "#/components/schemas/WebhookAcknowledgement"
         "400":
-          description: Missing or malformed signature headers or payload.
+          description: Malformed payload or invalid timestamp.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebhookError"
+              example:
+                error: "Invalid timestamp header"
+                code: "invalid_timestamp"
+                details:
+                  timestamp: "not-a-number"
         "401":
-          description: Signature verification failed.
+          description: Missing or invalid signature.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebhookError"
-        "404":
-          description: Unsupported provider.
+              example:
+                error: "Signature verification failed"
+                code: "invalid_signature"
+                details:
+                  skew: 0
+        "408":
+          description: Timestamp outside the configured replay window.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebhookError"
-        "409":
-          description: Event timestamp is outside the replay window.
+              example:
+                error: "Timestamp outside replay window"
+                code: "stale_timestamp"
+                details:
+                  skew: 900
+                  replayWindowSeconds: 300
+        "422":
+          description: Payload could not be parsed as JSON.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebhookError"
-        "500":
-          description: Unexpected server error while processing the event.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WebhookError"
+              example:
+                error: "Request body is not valid JSON"
+                code: "malformed_payload"

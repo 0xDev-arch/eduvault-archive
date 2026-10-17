@@ -67,6 +67,7 @@ Every webhook delivery includes these headers:
 2. **Reject stale timestamps** — if `|now() - timestamp| > 300` seconds
    (5 minutes), reject with HTTP 401 and error code `EVT_WEBHOOK_002`.
    This prevents replay attacks.
+   Reject malformed timestamps (non-numeric) with `EVT_WEBHOOK_002` as well.
 
 3. **Compute expected signature**:
 
@@ -77,6 +78,10 @@ Every webhook delivery includes these headers:
 
 4. **Compare signatures** using a constant-time equality function to prevent
    timing attacks. Do **not** use a naive string equality (`==`).
+
+5. **Reject duplicate deliveries** — persist the `X-EduVault-Delivery` ID
+   (or envelope `deliveryId`) after successful verification. If the ID has
+   already been processed, return HTTP 200 without repeating side effects.
 
 5. **Accept if either secret matches** during a rotation window (see
    [Secret Rotation](#secret-rotation)).
@@ -159,10 +164,13 @@ def verify_webhook_signature(
     try:
         ts = int(timestamp)
     except ValueError:
-        raise WebhookError("EVT_WEBHOOK_002", "Malformed timestamp")
+        return False
 
     if abs(time.time() - ts) > tolerance_sec:
-        raise WebhookError("EVT_WEBHOOK_002", "Timestamp outside replay window")
+        return False  # EVT_WEBHOOK_002
+
+    # Reject duplicate deliveries by deliveryId before processing side effects.
+    # Persist deliveryId after successful verification; return 200 on duplicates.
 
     signing_input = f"{timestamp}.".encode() + raw_body
 
@@ -178,7 +186,7 @@ def verify_webhook_signature(
         return True
     if prev_secret and hmac.compare_digest(compute(prev_secret), signature):
         return True
-    raise WebhookError("EVT_WEBHOOK_001", "Signature did not verify")
+    return False
 ```
 
 ---
@@ -452,6 +460,7 @@ Webhook-related failure codes from `docs/API_REFERENCE.md`:
 | `EVT_WEBHOOK_006` | Creator endpoint timed out.                                          |
 | `EVT_WEBHOOK_007` | Delivery rate limit exceeded for this endpoint.                      |
 | `EVT_WEBHOOK_008` | Both current and previous secrets are active (rotation in progress). |
+| `EVT_WEBHOOK_009` | Malformed payload (duplicate keys, invalid numbers, or bad JSON).    |
 
 ---
 
@@ -466,6 +475,9 @@ Webhook-related failure codes from `docs/API_REFERENCE.md`:
   leaks information about how many bytes matched, enabling timing attacks.
 - **Reject stale timestamps** — without the 5-minute window check, an attacker
   who captures a valid delivery can replay it indefinitely.
+- **Persist processed delivery IDs** — deduplicate on `X-EduVault-Delivery`
+  so a valid event replayed within the freshness window does not repeat
+  side effects.
 - Secrets are **never logged** or returned in API responses. If a secret is
   compromised, rotate it immediately using `PATCH /api/profile`.
 

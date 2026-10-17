@@ -98,8 +98,8 @@ Codes are prefixed by subsystem:
 | `EVT_DOWNLOAD_002` | 401 | false | Capability token invalid — token signature verification failed. | `none` |
 | `EVT_DOWNLOAD_003` | 401 | false | Capability token expired — the short-lived capability token has passed its TTL. | `refresh_capability` |
 | `EVT_DOWNLOAD_004` | 403 | false | Byte-range exceeded — the requested byte range exceeds the capability token's allowed maximum. | `none` |
-| `EVT_DOWNLOAD_005` | 403 | false | Entitlement check failed — download denied because the buyer's entitlement is not active. See `EVT_ENTITLEMENT_*. | `none` |
-| `EVT_DOWNLOAD_006` | 404 | false | Content not found — the IPFS CId referenced by the material is not pinned or is unreachable. | `contact_support` |
+| `EVT_DOWNLOAD_005` | 403 | false | Entitlement check failed — download denied because the buyer's entitlement is not active. See `EVT_ENTITLEMENT_*`. | `none` |
+| `EVT_DOWNLOAD_006` | 404 | false | Content not found — the IPFS CID referenced by the material is not pinned or is unreachable. | `contact_support` |
 | `EVT_DOWNLOAD_007` | 503 | true | Gateway unavailable — the IPFS gateway timed out or returned an error. | `retry_later` |
 
 ---
@@ -117,9 +117,9 @@ Codes are prefixed by subsystem:
 | `EVT_REFUND_007` | 401 | false | Refund authorization expired — the refund authorization payload has passed its expiry timestamp. | `contact_support` |
 | `EVT_REFUND_008` | 422 | false | Insufficient escrow balance — escrow does not hold enough funds to cover the refund amount. | `contact_support` |
 | `EVT_REFUND_009` | 422 | false | Purchase buyer not found — the PurchaseBuyer mapping is missing; refund cannot identify the recipient. | `contact_support` |
-| `EVT_REFUND_010` | 503 | true | Refund transaction failed — the Stellar transaction submission failed after retries. | `retry_later` |
+| `EVT_REFUND_010`| 503 | true | Refund transaction failed — the Stellar transaction submission failed after retries. | `retry_later` |
 | `EVT_REFUND_011` | 404 | false | Purchase not found — no purchase record exists for the given purchase ID. | `none` |
-| `EVT_REFUND_012` | 409 | false | Refund window expired — the refund was requested after the `REFUND_WINDOW_DAYS cutoff. | `contact_support` |
+| `EVT_REFUND_012` | 409 | false | Refund window expired — the refund was requested after the `REFUND_WINDOW_DAYS cutoff. | `contact_support` |
 
 ---
 
@@ -156,38 +156,44 @@ Codes are prefixed by subsystem:
 
 ## Webhook Errors (`EVT_WEBHOOK_`)
 
-These codes apply to **inbound** webhooks and integration callbacks received by EduVault.
-Inbound requests must carry an `MV-Signature` header (HMAC-SHA256 over the
-raw request body) and an `MV-Timestamp` header (Linux epoch seconds). The
-signature is computed as `HMAC-SHA256(secret, timestamp + "." + raw_body)` and
-must be provided as `crypto.timingSafeEqual` comparison on the server.
+This namespace covers both **inbound** webhooks / integration callbacks
+received by EduVault and **creator webhook delivery** failures.
 
-Replay protection is enforced in two layers:
+Inbound requests must carry these headers:
 
-1. **Timestamp window** — the `MV-Timestamp` header must be within the
-   configured window (default 300 seconds, `MV_WEBHOOK_REPLAY_WINDO_SECONDS`).
-   Requests with a timestamp too far in the past or future are rejected with
-   `EVT_WEBHOOK_002`.
-2. **Event ID deduplication** — every valid payload must include a stable `id` field.
-   Processed IDs are persisted in the `evwebhook_events` collection (or the
-    configured idempotency store). A repeated `id` with a matching signature
-   returns `EVT_WEBHOOK_009` and does not repeat side effects.
+| Header | Required | Description |
+|---|---|---|
+| `X-EduVault-Signature` | yes | `HMAC-SHA256` signature of ``${timestamp}.${rawBody}``, formatted as `sha256=<hex>`. |
+| `X-EduVault-Timestamp` | yes | Unix epoch seconds at signing time. Must be within the replay window (default 300s). |
+| `X-EduVault-Event-Id` | yes for delivery replies | Stable provider event IDentifier used for replay deduplication. If omitted, a deterministic digest of the raw body is used. |
+
+Invalid, stale, duplicate, and malformed inbound requests are rejected with the
+codes below. Duplicate valid events return HTTP 200 with `"duplicate": true`
+and do not re-run side effects.
 
 | Code | HTTP | Retryable | Description | Support Action |
 |---|---|---|---|---|
 | `EVT_WEBHOOK_001` | 401 | false | Signature verification failed — the HMAC-SHA256 signature on an inbound webhook payload did not verify. | `none` |
-| `EVT_WEBHOOK_002` | 401 | false | Timestamp too old — the `MV-Timestamp` header indicates the request is outside the replay-prevention window. | `none` |
+| `EVT_WEBHOOK_002` | 401 | false | Timestamp too old — the `X-EduVault-Timestamp` header indicates the request is outside the replay-prevention window. | `none` |
 | `EVT_WEBHOOK_003` | 400 | false | Malformed payload — the webhook body could not be parsed as valid JSON. | `none` |
 | `EVT_WEBHOOK_004` | 404 | false | Unknown event type — the `event` field does not match any registered webhook event type. | `none` |
 | `EVT_WEBHOOK_005` | 503 | true | Delivery failed — the creator's configured webhook endpoint returned a non-2xx status. | `retry_later` |
 | `EVT_WEBHOOK_006` | 503 | true | Delivery timeout — the creator's webhook endpoint did not respond within the deadline. | `retry_later` |
 | `EVT_WEBHOOK_007` | 429 | true | Rate limit — too many webhook deliveries to this endpoint within the window. | `retry_later` |
 | `EVT_WEBHOOK_008` | 409 | false | Secret rotation in progress — both current and previous signing secrets are temporarily active; signature must match one of them. | `none` |
-| `EVT_WEBHOOK_009` | 409 | false | Duplicate event — the event `id` was already processed within the replay window; side effects were not repeated. | `none` |
-| `EVT_WEBHOOK_010` | 401 | false | Signature header missing — the `MV-Signature` or `MV-Signature-Algorithm` header was not provided. | `none` |
-| `EVT_WEBHOOK_011` | 401 | false | Timestamp header missing or invalid — the `MV-Signature` header was present but the `MV-Signature-Timestamp` header was missing or not a valid integer. | `none` |
+| `EVT_WEBHOOK_009` | 409 | false | Duplicate event — this event ID was already processed within the replay window; side effects were not repeated. | `none` |
+| `EVT_WEBHOOK_010` | 401 | false | Missing signature headers — the request is missing the `X-EduVault-Signature` or `X-EduVault-Timestamp` header. | `none` |
+| `EVT_WEBHOOK_011` | 401 | false | Malformed signature header — the signature header is not in the expected `sha256=<hex>` format or has an invalid length. | `none` |
 
 ---
 
-See also the webhook signing and replay-protection guide in `docs/WEBHOOK_SECURITY.md`
-for the canonical signing string, header format, and configuration knobs.
+## Support Actions
+
+| Action | Meaning |
+|---|---|
+| `none` | No client action required; the request should not be retried as-is. |
+| `retry_later` | Retry the same request after a delay (back-off). |
+| `refresh_quote` | Re-fetch the material quote and resubmit the purchase. |
+| `refresh_capability` | Request a new download capability token. |
+| `reduce_quantity` | Reduce the bulk purchase quantity and resubmit. |
+| `contact_support` | Contact EduVault support with the request correlation ID. |
