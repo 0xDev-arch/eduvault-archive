@@ -30,7 +30,7 @@ Every API error response has the shape:
 | `code` | `string` | Stable machine-readable code. Never changes within a major version. |
 | `message` | `string` | Informational prose. May change. Do not parse. |
 | `retryable` | `boolean` | `true` when the same request may succeed if retried after a delay. |
-| `supportAction` | `string \ | null` | Suggested next step. See [Support Actions](#Support-Actions). |
+| `supportAction` | `string \ | null` | Suggested next step. See [Support Actions]([#Support-Actions](#support-actions)). |
 
 ---
 
@@ -98,7 +98,7 @@ Codes are prefixed by subsystem:
 | `EVT_DOWNLOAD_002` | 401 | false | Capability token invalid — token signature verification failed. | `none` |
 | `EVT_DOWNLOAD_003` | 401 | false | Capability token expired — the short-lived capability token has passed its TTL. | `refresh_capability` |
 | `EVT_DOWNLOAD_004` | 403 | false | Byte-range exceeded — the requested byte range exceeds the capability token's allowed maximum. | `none` |
-| `EVT_DOWNLOAD_005` | 403 | false | Entitlement check failed — download denied because the buyer's entitlement is not active. See `EVT_ENTITLEMENT_*. | `none` |
+| `EVT_DOWNLOAD_005` | 403 | false | Entitlement check failed — download denied because the buyer's entitlement is not active. See `EVT_ENTITLEMENT_*`. | `none` |
 | `EVT_DOWNLOAD_006` | 404 | false | Content not found — the IPFS CId referenced by the material is not pinned or is unreachable. | `contact_support` |
 | `EVT_DOWNLOAD_007` | 503 | true | Gateway unavailable — the IPFS gateway timed out or returned an error. | `retry_later` |
 
@@ -156,53 +156,24 @@ Codes are prefixed by subsystem:
 
 ## Webhook Errors (`EVT_WEBHOOK_`)
 
-These codes apply to **inbound** webhooks and integration callbacks received by
-EduVault. Every inbound request is verified cryptographically and subject to a
-replay-prevention window before any side effects are applied.
-
-### Signature and replay contract
-
-Inbound requests must include:
-
-| Header | Required | Description |
-|---|---|---|
-| `X-EduVault-Signature` | Yes | HMAC-SHA256 hex digest of `<timestamp>.<body>` keyed with the shared signing secret. |
-| `X-EduVault-Timestamp` | Yes | Unix epoch seconds at sign time. Must be within the replay window (default 300s). |
-| `X-EduVault-Event-ID` | Yes | Stable provider-scoped event identifier used for deduplication. |
-| `X-EduVault-Event-Type` | Yes | Registered event type name. |
-
-Compute the signature over the concatenation of the timestamp, a literal `.`,
-and the raw request body (before JSON parsing). Signature comparison is
-constant-time. Requests outside the replay window, with an invalid signature, or
-with an already-processed event ID are rejected before any side effects are
-applied. Deduplication is atomic: the event ID is reserved in the same transaction
-as the side effect, so concurrent deliveries of the same event cannot both succeed.
+Inbound webhooks and integration callbacks are verified with an HMAC-SHA256
+signature over the raw request body. The signature is sent in the
+`X-EduVault-Signature`
+header as `${timestamp}.${signature}`, and the timestamp is also sent in the
+`X-EduVault-Timestamp` header. The signed payload is `${timestamp}.${rawBody}`, so a
+signature cannot be replayed with a different timestamp. Timestamps outside the
+configured replay window (default 300 seconds) are rejected. Event IDs are
+persisted in a processed-events store; a duplicate valid event returns a
+successful idempotent response without repeating side effects.
 
 | Code | HTTP | Retryable | Description | Support Action |
 |---|---|---|---|---|
 | `EVT_WEBHOOK_001` | 401 | false | Signature verification failed — the HMAC-SHA256 signature on an inbound webhook payload did not verify. | `none` |
-| `EVT_WEBHOOK_002` | 401 | false | Timestamp too old — the `X-EduVault-Timestamp` Header indicates the request is outside the replay-prevention window. | `none` |
+| `EVT_WEBHOOK_002` | 401 | false | Timestamp too old — the `X-EduVault-Timestamp` header indicates the request is outside the replay-prevention window. | `none` |
 | `EVT_WEBHOOK_003` | 400 | false | Malformed payload — the webhook body could not be parsed as valid JSON. | `none` |
 | `EVT_WEBHOOK_004` | 404 | false | Unknown event type — the `event` field does not match any registered webhook event type. | `none` |
 | `EVT_WEBHOOK_005` | 503 | true | Delivery failed — the creator's configured webhook endpoint returned a non-2xx status. | `retry_later` |
 | `EVT_WEBHOOK_006` | 503 | true | Delivery timeout — the creator's webhook endpoint did not respond within the deadline. | `retry_later` |
 | `EVT_WEBHOOK_007` | 429 | true | Rate limit — too many webhook deliveries to this endpoint within the window. | `retry_later` |
 | `EVT_WEBHOOK_008` | 409 | false | Secret rotation in progress — both current and previous signing secrets are temporarily active; signature must match one of them. | `none` |
-| `EVT_WEBHOOK_009` | 409 | false | Duplicate event — the event ID has already been processed within the replay window; the original result is returned and no side effects are repeated. | `none` |
-| `EVT_WEBHOOK_010` | 400 | false | Missing required header — one of `X-EduVault-Signature`, `X-EduVault-Timestamp`, `X-EduVault-Event-ID`, or `X-EduVault-Event-Type` is absent. | `none` |
-| `EVT_WEBHOOK_011` | 400 | false | Invalid timestamp — the `X-EduVault-Timestamp` Header is not a valid Unix epoch integer. | `none` |
-
----
-
-## Support Actions
-
-Values for the `supportAction` field:
-
-| Value | Meaning |
-|---|---|
-| `none` | No client action required; the request should not be retried as-is. |
-| `retry_later` | Retry the same request after a backoff delay. |
-| `refresh_quote` | Re-fetch the material quote and retry with the updated values. |
-| `refresh_capability` | Re-request a download capability token. |
-| `reduce_quantity` | Lower the bulk quantity and retry. |
-| `contact_support` | Contact EduVault support with the request correlation ID. |
+| `EVT_WEBHOOK_009` | 409 | false | Duplicate event — the event ID has already been processed; the replay is acknowledged with an idlempotent response and no side effects are repeated. | `none` |

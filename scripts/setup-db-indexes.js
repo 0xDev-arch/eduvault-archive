@@ -107,16 +107,17 @@ async function setupMarketplaceIndexes() {
       { name: "analytics_dedupe_expiry", expireAfterSeconds: 0, background: true }
     );
 
-    // 7. Webhook replay protection - persisted processed event IDs with TTL cleanup
-    console.log("Creating indexes for webhook replay protection...");
-    const webhookEvents = db.collection("webhook_processed_events");
-    await webhookEvents.createIndex(
+    // 7. Webhook replay protection - persist processed event IDs.
+    // Unique compound index on (provider, eventId) prevents duplicate side effects.
+    console.log("Creating index for webhook event deduplication...");
+    await db.collection("webhook_events").createIndex(
       { provider: 1, eventId: 1 },
-      { name: "webhook_provider_event_unique", unique: true, background: true }
+      { name: "webhook_event_unique", unique: true, background: true }
     );
-    await webhookEvents.createIndex(
+    // TTL cleanup for processed event records (keeps replay window bounded).
+    await db.collection("webhook_events").createIndex(
       { expiresAt: 1 },
-      { name: "webhook_processed_events_expiry", expireAfterSeconds: 0, background: true }
+      { name: "webhook_event_expiry", expireAfterSeconds: 0, background: true }
     );
 
     console.log("✅ All marketplace indexes created successfully!");
@@ -219,7 +220,7 @@ async function runPaginationPerformanceTest() {
     console.log(`- Index used: ${!JSON.stringify(cursorExplain).includes("COLLSCAN")}`);
     
     const improvement = ((offsetTime - cursorTime) / offsetTime * 100).toFixed(1);
-    console.log(`\n‚️ Performance improvement: ${improvement}% faster with cursor pagination`);
+    console.log(`\n🚂 Performance improvement: ${improvement}% faster with cursor pagination`);
   }
 
   console.log("\n✅ Performance test completed!");

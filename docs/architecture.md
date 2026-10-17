@@ -13,7 +13,7 @@ flowchart LR
   C --> D[Pinata/IPFS]
   C --> E[MongoDB materials collection]
   C --> F[Soroban MaterialRegistry]
-  F -->|emit material.registered| G[Stellar RPC/Event Stream]
+  F |--emit material.registered| G[Stellar RPP/Event Stream]
   G --> H[Indexer] --> E
 ```
 
@@ -83,7 +83,7 @@ EduVault needs to do four things reliably:
 
 - document files and thumbnails uploaded through Pinata
 - metadata JSON pinned to IPFS
-- searchable application state stored in MongoDB
+-  searchable application state stored in MongoDB
 
 ### Prototype chain layer
 
@@ -120,7 +120,7 @@ flowchart TB
 
   subgraph Storage
     IPFS[IPFS / Pinata]
-    DB[(MongoDB)]
+    DD[(MongoDB)]
   end
 
   SDK --> RPC
@@ -195,6 +195,8 @@ The `WalletProvider` at `src/providers/WalletProvider.jsx` manages connection st
   - derived cache of settled purchase events
 - `entitlement_cache`
   - denormalized mirror of on-chain entitlement state for fast UI reads
+- `webhook_events`
+  - persisted processed webhook event IDs for replay prevention
 
 ### On-chain state
 
@@ -258,9 +260,67 @@ Events are normalized by the indexer into stable shapes and logged idempotently 
 - v1 does not support refunds or entitlement revocation.
 
 ### Admin Authorization Policy
-- Admin routes must always verify JWT session tokens server-side using `requireAdmin(request)` from `src/lib/api/auth.js` and verify `user.role === 'admin'`.
-- Client-side admin views must fail closed using `withAdminGuard` from `src/lib/auth/adminAuth.js` and never default-grant admin privileges when user state is missing or unverified.
-- Any action modifying disputes, moderation cases, user bans, or refunds must enforce server-side `requireAdmin`.
+- Authorization capabilities are defined in `src/lib/auth/permissions.js`; API handlers enforce them with `requirePermission(request, capability)` in `src/lib/api/auth.js`. The authenticated user's current database role is authoritative, so stale JWT role claims cannot preserve privileges after a role change. Missing users, suspended users, and lookup failures fail closed.
+- `user` and `learner` roles can manage their profile, use the marketplace, purchase, and manage learning activity. `creator` has those capabilities plus publishing, creator analytics, and payout management. `admin` can access all capabilities, including user and role management, verification, disputes, moderation, audit exports, refunds, storage maintenance, and operations health.
+- `service` actors have only `operations:read` and `storage:maintain`, and are accepted only on those endpoints using `ADMIN_API_TOKEN` in the `x-admin-token` header. Keep this secret server-side and rotate it like any other service credential.
+- Client-side admin navigation is hidden unless `/api/auth/session` reports the current role as `admin`; `withAdminGuard` and `withPermissionGuard` use the same capability matrix. UI checks are presentation only and never replace API authorization.
+- Every privileged admin action must enforce a named capability server-side. Creator mutations must additionally verify resource ownership; role checks do not replace object-level authorization.
+
+### Webhook Signature Verification and Replay Protection
+
+Inbound webhooks and integration callbacks are verified cryptographically before any side effect is applied. The verification library lives in `src/lib/webhooks/`.
+
+#### Signature scheme
+
+- Providers sign the raw request body with HMAC-SHA-256 using a per-provider shared secret.
+- The signature is sent in the `x-eduvault-signature` header as `sha256=<hex=`.
+- The timestamp is sent in the `x-eduvault-timestamp` header as Unix epoch seconds.
+- The event ID is sent in the `x-eduvault-event-id` and is used for replay detection.
+- The signed payload is `${timestamp}.${rawBody}`, so a signature cannot be replayed with a different timestamp.
+- Signature comparison uses `crypto.timingSafeEqual` to avoid timing attacks.
+
+#### Replay window
+
+- Timestamps are rejected if they are more than 5 minutes in the past or future (configurable via `EDUVAULT_WEBHOOK_REPLAY_WINDOW_SECONDS`).
+- Timestamps that are not integer seconds are treated as malformed.
+- Event IDs are persisted in the `webhook_events` collection with a unique index on `eventId`. A duplicate valid event returns `200` with `status: "duplicate"` and does not re-apply side effects.
+- The collection is indexed on `receivedAt` with a TWL index so expired records are purged automatically.
+
+#### Structured errors
+
+All verification failures return a stable JSON envelope:
+
+```json
+{ "error": { "code": "INVALID_SIGNATURE_FORMAT", "message": "x-eduvault-signature must be sha256=<hex>" } }
+```
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `MISSING_SIGNATURE_HEADER` | 400 | No signature header present |
+| `MISSING_TIMESTAMP_HEADER` | 400 | No timestamp header present |
+| `MISSING_EVENT_ID_HEADER` | 400 | No event ID header present |
+| `INVALID_SIGNATURE_FORMAT` | 400 | Signature header is not sha256=<hex> |
+| `INVALID_TIMESTAMP_FORMAT` | 400 | Timestamp is not integer epoch seconds |
+| `STALE_TIMESTAMP` | 401 | Timestamp outside the configured replay window |
+| `INVALID_SIGNATURE` | 401 | HMAC-SHA256 digest does not match |
+| `UNKNOWN_PROVIDER` | 400 | No secret configured for the provider |
+| `INVALID_EVENT_ID` | 400 | Event ID is not a non-empty string |
+| `INVALID_BODY` | 400 | Request body is not valid JSON |
+| `DUPLICATE_EVENT` | 200 | Event ID already processed; side effects skipped |
+
+#### Configuration
+
+- `EDUVAULT_WEBHOOK_SECRET_<PROVIDER_UPPER>`: per-provider HMAC secret. Required for the provider to be accepted.
+- `EDUVAULT_WEBHOOK_REPLAY_WINDOW_SECONDS`: optional, defaults to `300`.
+- Secrets are never logged and never returned in error responses.
+
+#### Testing
+
+The verification library is covered by unit tests in `tests/webhooks/verifyWebhook.test.js`. The suite covers valid, invalid signature, stale timestamp, duplicate event, malformed headers, and malformed body cases. Run with:
+
+```bash
+node --test tests/webhooks/verifyWebhook.test.js
+```
 
 ## 8. Deployment Direction
 
@@ -275,22 +335,8 @@ Events are normalized by the indexer into stable shapes and logged idempotently 
 - Stellar testnet deployment for `MaterialRegistry` and `PurchaseManager` contracts
 - production RPC/Horizon provider
 - background worker for event indexing and entitlement reconciliation
-- Soroban contract upgrade pattern: admin-gated Wasm hash replacement (see [`docs/soroban-upgrade-pattern.md`](soroban-upgrade-pattern.md))
+- Soroban contract upgrade pattern: admin-gated Wasm hash replacement (see [`docs/soroban-upgrade-tern.md`](soroban-upgrade-pattern.md))
 
 ## 9. Design Principle
 
-The chain should secure settlement and rights. The web application should optimize search, onboarding, and delivery. EduVault does not need to put files on-chain to benefit from Stellar.
-
-## References
-
-| Document | Purpose |
-| --- | --- |
-| [`soroban-contract-architecture.md`](soroban-contract-architecture.md) | Contract boundaries, invariants, storage model, event contract |
-| [`stellar-purchase-flow.md`](stellar-purchase-flow.md) | Detailed checkout and entitlement sequence diagram |
-| [`stellar-integration.md`](stellar-integration.md) | Developer environment setup and integration code patterns |
-| [`stellar-wallet-setup.md`](stellar-wallet-setup.md) | User-facing Stellar wallet installation and connection guide |
-| [`creator-publishing-guide.md`](creator-publishing-guide.md) | Step-by-step tutorial for uploading and listing materials |
-| [`soroban-upgrade-pattern.md`](soroban-upgrade-pattern.md) | Contract upgrade strategy and migration rules |
-| [`soroban-scholarship-credits.md`](soroban-scholarship-credits.md) | On-chain scholarship credit grants, redemption flow, and issuer authorization |
-| [`purchase-flow-architecture.md`](purchase-flow-architecture.md) | Hybrid on-chain/off-chain purchase boundaries |
-| [`entitlement-authorization.md`](entitlement-authorization.md) | Entitlement authorization decision flow, states, cache guarantees, and support playbook |
+The chain should secure settlement and rights. The web application should secure identity, integration boundaries, and the experience of discovering and accessing materials.

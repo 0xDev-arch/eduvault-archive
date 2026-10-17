@@ -10,11 +10,11 @@ entitlement, download, storage, indexer, webhook, auth, contract, and input
 validation) is defined in [`docs/API_REFERENCE.md](API_REFERENCE.md).
 Clients and frontends must use these codes rather than parsing prose error
 messages. Webhook signature verification and retry semantics are described
-in [`docs/webhook-signatures.md](webhook-signatures.md).
+in [`docs/webhook-signatures.md`](webhook-signatures.md).
 
 Canonical serialization and strict input normalization rules for signed,
 hashed, compared, or settled payloads are defined in
-[`docs/canonical-serialization.md](canonical-serialization.md).
+[`docs/canonical-serialization.md`](canonical-serialization.md).
 
 ## Collections
 
@@ -42,6 +42,7 @@ Optional fields:
 - `webhookSigningSecretRotatedAt`: timestamp when the current secret replaced the previous one.
 
 Indexes:
+
 - unique `email`.
 - sparse `walletAddressLower`.
 
@@ -82,7 +83,7 @@ Derived cache of settled on-chain purchase events.
 Required fields:
 
 - `materialId`, `buyerAddress`, `status`.
-- `createdAt / `updatedAt`: timestamps.
+- `createdAt / updatedAt`: timestamps.
 
 Optional fields:
 
@@ -91,7 +92,7 @@ Optional fields:
 Indexes:
 
 - `{ buyerAddress: 1, createdAt: -1 }`.
-- unique sparse `{ (materialId: 1, buyerAddress: 1) }`.
+- unique sparse `{ materialId: 1, buyerAddress: 1 }`.
 - unique sparse `chainTxHash`.
 
 ### `entitlement_cache`
@@ -101,7 +102,7 @@ Derived query cache used by API and frontend flows to check access quickly.
 Required fields:
 
 - `materialId`, `buyerAddress`, `active`, `source`.
-- `createdAt / `updatedAt`: timestamps.
+- `createdAt / updatedAt`: timestamps.
 
 Indexes:
 
@@ -125,36 +126,6 @@ Required fields:
 
 - `_id`: stable event id.
 - `type`, `source`, `raw`, `createdAt`.
-
-### `webhook_events`
-
-Idempotency log for verified inbound webhooks and integration callbacks.
-Each accepted event is recorded before side effects are applied so replayed
-deliveries are no-ops.
-
-Required fields:
-
-- `_id`: stable dedupe id. For signed providers this is the provider event id;
-  for internal callbacks it is the client-supplied `eventId`.
-- `provider`: webhook provider key, for example `stripe`, `github`, `lemonsqueezy`, or
-  `internal`.
-- `eventType`: normalized event type string.
-- `payloadHash`: SHA-256 hex digest of the canonical raw body.
-- `signatureVerifiedAt`: timestamp of successful signature verification.
-- `processedAt`: timestamp when side effects completed.
-- `status`: `ok` or `failed`.
-- `createdAt / updatedAt`: timestamps.
-
-Optional fields:
-
-- `providerTimestamp`: timestamp claimed by the provider (header or payload).
-- `errorCode`: stable error code when `status` is `failed`.
-
-Indexes:
-
-- unique `_id`.
-- `{ provider: 1, createdAt: -1 }` for operational audits.
-- TTL index on `createdAt` for retention cleanup.
 
 ### `search_index`
 
@@ -212,21 +183,54 @@ Visibility constraints:
   authorship or an active entitlement. The query layer applies this filter before
   results leave the process.
 
-### `search_index_repair`_log`
+### `search_index_repair_log`
 
 Audit trail for the stale-index repair job.
 
-`signedXtr` and any other signed or settled payloads are canonicalized before
+### `webhook_events`
+
+Idempotency log for processed inbound webhook and integration callback events.
+Used to enforce the replay window and prevent duplicate side effects.
+
+Required fields:
+
+- `_id`: stable event id derived from the provider event id, or from the
+  canonicalized payload when the provider does not supply one.
+- `provider`: webhook provider or internal callback source, for example
+  `stripe`, `github`, or `internal`.
+- `eventId`: provider-supplied event id when available.
+- `payloadHash`: hex digest of the canonicalized request body.
+- `receivedAt`: timestamp when the event was first accepted.
+- `status`: `processed` or `failed`.
+- `createdAt / updatedAt`: timestamps.
+
+Indexes:
+
+- unique `_id`.
+- unique sparse `{ provider: 1, eventId: 1 }`.
+- `{ receivedAt: 1 }` with a TTL index for replay-window retention.
+
+Replay-window rules:
+
+- Requests whose signed timestamp is older than the configured tolerance
+  (default 300 seconds) are rejected with `EVT_WEBHOOK_002`.
+- Requests with a missing or malformed signature are rejected with
+  `EVT_WEBHOOK_001`.
+- Duplicate valid events return the original result without repeating side
+  effects and are reported with `EVT_WEBHOOK_003`.
+- Malformed payloads are rejected with `EVT_WEBHOOK_004`.
+
+`signedXdr` and any other signed or settled payloads are canonicalized before
 verification and settlement. Non-canonical input is normalized or rejected
 consistently, and legacy records are handled via the compatibility rules in
-[`docs/canonical-serialization.md](canonical-serialization.md).
+[`docs/canonical-serialization.md`](canonical-serialization.md).
 
 ### `GET /api/entitlements`
 
 Required fields:
 
 - `_id`: stable run id.
-- `startedAt / `completedAt`: timestamps.
+- `startedAt` / `completedAt`: timestamps.
 - `scanned`, `repaired`, `removed`, `skipped`: counters.
 - `repairs`: array of `{ indexId, reason, action }` detailing each mutation.
 
@@ -260,69 +264,10 @@ below summarises the namespace-to-subsystem relationship:
 
 | Namespace prefix    | Subsystem                         |
 | ------------------- | --------------------------------- |
-| `EVT_PURCHASE_`    | Purchase flow                     |
+| `EVT_PURCHASE_`     | Purchase flow                     |
 | `EVT_ENTITLEMENT_`  | Entitlement / access-check        |
 | `EVT_DOWNLOAD_`      | Download capability tokens        |
-| `EVT_REFUND_`       | Refund flow                         |
-| `ST_STORAGE_`       | IPFS / Pinata storage             |
-| `EVT_INDEXER_`      | Stellar event indexer             |
-| `EVT_WEBHOOK_`      | Webhook delivery                    |
-
-## Webhook verification and replay window
-
-Inbound webhooks and integration callbacks are verified before any side effects
-run. The full signing scheme and retry semantics are defined in
-[`docs/webhook-signatures.md](webhook-signatures.md). The contract below is
-normative for the request headers, response shapes, and persisted state.
-
-### Request headers
-
-| Header                | Required | Description                                                     |
-| --------------------- | -------- | -------------------------------------------------------------------------- |
-| `X-EduVault-Signature`  | yes      | `t=<unix-seconds>,s2=<hmac-sha256-hex>` for providers that sign the raw body.    |
-| `X-EduVault-Timestamp`  | yes      | Unix seconds or ISO-8601 timestamp of the delivery.                      |
-| `X-EduVault-Event-Id` x yes      | Stable provider event id used for deduplication.                             |
-| `X-EduVault-Provider` | yes      | Provider key, for example `stripe`, `github`, `lemonsqueezy`, or `internal`.       |
-
-Signature verification runs over the raw request body bytes after the body has
-passed the canonicalization rules in
-[`docs/canonical-serialization.md](canonical-serialization.md). The replay
-window is **300 seconds** by default and is configurable via
-`WEBHOOK_REPLAY_WINDOW_SECONDS`. Timestamps outside the window are rejected even
-if the signature is valid.
-
-### Response shapes
-
-Accepted events return `200`. Duplicate valid events return `200` with
-`duplicate: true` and do not repeat side effects. Rejected events return `4xx`
-with the standard error envelope and a stable `evt_webhook_` code.
-
-{
-  "ok": true,
-  "duplicate": false,
-  "eventId": "evt_01HXYZ",
-  "provider": "stripe",
-  "status": "processed"
-}
-
-{
-  "error": {
-    "code": "evt_webhook_invalid_signature",
-    "message": "Signature verification failed.",
-    "retryable": false,
-    "supportAction": "none"
-  }
-}
-
-Error codes:
-
-| Code                           | HTTP | Trigger                                                     |
-| ------------------------------ | ---- | ----------------------------------------------------------------------- |
-| `evt_webhook_invalid_signature` | 401  | Signature header missing, malformed, or HMAC digest mismatch.                |
-| `evt_webhook_stale_timestamp` | 408  | Timestamp header missing, unparseable, or outside the replay window.      |
-| `evt_webhook_duplicate`       | 200  | Valid event already recorded in `webhook_events`.                      |
-| `evt_webhook_malformed_payload` | 400  | Body is not valid JSON or misses required event fields.                  |
-
-Duplicate detection uses the unique `_id` on `webhook_events`. The record is
-inserted before side effects are applied; a unique-key conflict is treated as a
-successful duplicate rather than an error.
+| `EVT_REFUND_`        | Refund flow                       |
+| `ST_STORAGE_`        | IPFS / Pinata storage             |
+| `EVT_INDEXER_`       | Stellar event indexer             |
+| `EVT_WEBHOOK_`       | Webhook delivery and verification   |

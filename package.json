@@ -41,7 +41,7 @@
     "support:expire": "node scripts/expire-support-sessions.mjs"
   },
   "dependencies": {
-    "@creit-tech/stellar-wallets-kit": "npm:@jsr/creit-tech__stellar-wallets-kit^2.1.0",
+    "@creit-tech/stellar-wallets-kit": "npm:@jsr/creit-tech__stellar-wallets-kit@>2.1.0",
     "@openzeppelin/contracts": "^5.6.1",
     "@rainbow-me/rainbowkit": "^2.2.10",
     "@react-native-async-storage/async-storage": "^3.0.2",

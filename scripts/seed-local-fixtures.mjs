@@ -14,8 +14,7 @@
  *   entitlement_cache – 3 active entitlement entries derived from purchases
  *   refunds           – 2 refund records (one pending, one completed)
  *   analytics_events  – deterministic usage/failure/recovery/domain events
- *   webhook_events    – deterministic processed webhook event IDs (replay guard)
- *   webhook_fixtures  – signed webhook payload fixtures for local verification
+ *   webhook_events    – processed webhook event IDs for replay protection
  *
  * Usage:
  *   node scripts/seed-local-fixtures.mjs
@@ -25,11 +24,10 @@
  *   MONGODB_DB   – defaults to eduvault
  *   FORCE_RESEED – set to "true" to drop and recreate all fixture documents
  *   SEED_ANCHOR  – ISO date used as "now" for deterministic trend fixtures
- *   WEBHOOK_SECRET – shared HMAC secret used to sign local webhook fixtures
+ *   WEBHOOK_SECRET – shared secret used to sign seeded webhook fixtures
  */
 
 import { MongoClient, ObjectId } from 'mongodb';
-import { createHmac } from 'node:crypto';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -37,7 +35,7 @@ const MONGODB_URI = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/eduvau
 const MONGODB_DB  = process.env.MONGODB_DB  ?? 'eduvault';
 const FORCE       = process.env.FORCE_RESEED === 'true';
 const SEED_ANCHOR = process.env.SEED_ANCHOR ?? '2024-06-01T00:00:00.000Z';
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? 'eduvault-local-webhook-secret';
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? 'local-dev-webhook-secret';
 
 /**
  * Produce a deterministic ObjectId from an ASCII string seed.
@@ -55,12 +53,14 @@ function deterministicId(seed) {
 }
 
 /**
- * Produce a deterministic HMAC-SHA256 signature over a canonical payload
- * string. Mirrors the server-side verifier so local fixtures exercise the
- * exact same code path as production webhooks.
+ * Compute a deterministic HMAC-style signature for a seeded webhook fixture.
+ * Uses Node's crypto module so the same secret + payload always yields the
+ * same signature — safe to assert against in tests.
  */
-function signWebhookPayload(payloadString, secret = WEBHOOK_SECRET) {
-  return createHmac('sha256', secret).update(payloadString, 'utf8').digest('hex');
+import { createHmac } from 'node:crypto';
+
+function signWebhookPayload(payload, secret = WEBHOOK_SECRET) {
+  return createHmac('sha256', secret).update(payload).digest('hex');
 }
 
 const NOW = new Date(SEED_ANCHOR);
@@ -74,7 +74,6 @@ function log(msg)  { console.log(`  [seed] ${msg}`); }
 function ok(msg)   { console.log(`  [seed] ✓ ${msg}`); }
 function warn(msg) { console.warn(`  [seed] ⚠ ${msg}`); }
 function hoursAgo(n) { return new Date(NOW.getTime() - n * HOUR); }
-function minutesAgo(n) { return new Date(NOW.getTime() - n * 60_000); }
 
 // ── fixture definitions ───────────────────────────────────────────────────────
 
@@ -369,133 +368,6 @@ const REFUNDS = [
 ];
 
 /**
- * Deterministic webhook fixtures exercising the signed-webhook verifier.
- *
- * Each fixture carries the canonical payload string, the HMAC signature that
- * a provider would send, and the expected verification outcome. The
- * `webhook_events` collection stores only *processed* event IDs so the
- * replay-window guard can reject duplicates without repeating side effects.
- *
- * Expected outcomes:
- *   valid     – signature matches, timestamp within window, unseen event ID
- *   invalid   – signature does not match the payload
- *   stale     – timestamp older than the replay window
- *   duplicate – event ID already present in webhook_events
- *   malformed – payload is not valid JSON or missing required fields
- */
-const WEBHOOK_REPLAY_WINDOW_MS = 5 * 60_000; // 5 minutes
-
-function makeWebhookFixture(key, { eventId, provider, eventType, occurredAt, payload, tamper, malformed }) {
-  const canonical = malformed ? payload : JSON.stringify(payload);
-  const signature = tamper
-    ? signWebhookPayload(canonical).replace(/^./, c => (c === '0' ? '1' : '0'))
-    : signWebhookPayload(canonical);
-  return {
-    _id:         deterministicId(`webhook:${key}`),
-    key,
-    provider,
-    eventId,
-    eventType,
-    occurredAt,
-    payload:     malformed ? payload : payload,
-    canonical,
-    signature,
-    headers: {
-      'x-eduvault-signature': `sha256=${signature}`,
-      'x-eduvault-timestamp': occurredAt.toISOString(),
-      'x-eduvault-event-id':  eventId,
-    },
-    replayWindowMs: WEBHOOK_REPLAY_WINDOW_MS,
-    createdAt:   occurredAt,
-    updatedAt:   occurredAt,
-  };
-}
-
-const WEBHOOK_FIXTURES = [
-  makeWebhookFixture('valid:purchase-confirmed', {
-    eventId:   'evt_local_valid_purchase_0001',
-    provider:  'internal',
-    eventType: 'purchase.confirmed',
-    occurredAt: minutesAgo(1),
-    payload: {
-      eventId:   'evt_local_valid_purchase_0001',
-      eventType: 'purchase.confirmed',
-      purchaseId: PURCHASE_IDS.dave,
-      materialId: MATERIALS[0].materialId,
-      buyerAddress: WALLETS.dave,
-      amount: 10_000_000,
-    },
-  }),
-  makeWebhookFixture('invalid:bad-signature', {
-    eventId:   'evt_local_invalid_sig_0001',
-    provider:  'internal',
-    eventType: 'refund.requested',
-    occurredAt: minutesAgo(2),
-    tamper:    true,
-    payload: {
-      eventId:   'evt_local_invalid_sig_0001',
-      eventType: 'refund.requested',
-      purchaseId: PURCHASE_IDS.eve,
-      materialId: MATERIALS[2].materialId,
-      amount: 19_000_000,
-    },
-  }),
-  makeWebhookFixture('stale:outside-window', {
-    eventId:   'evt_local_stale_0001',
-    provider:  'internal',
-    eventType: 'purchase.confirmed',
-    occurredAt: new Date(NOW.getTime() - WEBHOOK_REPLAY_WINDOW_MS - 60_000),
-    payload: {
-      eventId:   'evt_local_stale_0001',
-      eventType: 'purchase.confirmed',
-      purchaseId: PURCHASE_IDS.frank,
-      materialId: MATERIALS[4].materialId,
-      amount: 30_000_000,
-    },
-  }),
-  makeWebhookFixture('duplicate:already-processed', {
-    eventId:   'evt_local_duplicate_0001',
-    provider:  'internal',
-    eventType: 'purchase.confirmed',
-    occurredAt: minutesAgo(3),
-    payload: {
-      eventId:   'evt_local_duplicate_0001',
-      eventType: 'purchase.confirmed',
-      purchaseId: PURCHASE_IDS.dave,
-      materialId: MATERIALS[0].materialId,
-      amount: 10_000_000,
-    },
-  }),
-  makeWebhookFixture('malformed:not-json', {
-    eventId:   'evt_local_malformed_0001',
-    provider:  'internal',
-    eventType: 'unknown',
-    occurredAt: minutesAgo(1),
-    malformed: true,
-    payload:   '{"eventId":"evt_local_malformed_0001",',
-  }),
-];
-
-/**
- * Processed webhook event IDs. Only the duplicate fixture's event ID is
- * pre-recorded so the verifier rejects it as a replay. All other fixtures
- * remain unprocessed so their side effects can run exactly once.
- */
-const WEBHOOK_EVENTS = [
-  {
-    _id:        deterministicId('webhook-event:evt_local_duplicate_0001'),
-    eventId:    'evt_local_duplicate_0001',
-    provider:   'internal',
-    eventType:  'purchase.confirmed',
-    status:     'processed',
-    processedAt: minutesAgo(3),
-    signature:  WEBHOOK_FIXTURES.find(f => f.key === 'duplicate:already-processed').signature,
-    createdAt:  minutesAgo(3),
-    updatedAt:  minutesAgo(3),
-  },
-];
-
-/**
  * Deterministic analytics events used to exercise historical trend
  * aggregation. Each event carries:
  *   - type:     usage | failure | recovery | domain
@@ -561,6 +433,67 @@ const ANALYTICS_EVENTS = [
   // ── private: must be redacted in exported reports ─────────────────────────
   makeEvent('private:carol-draft:view:d-1', { type: 'usage', metric: 'material.view', daysBack: 1, actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 2, private: true }),
   makeEvent('private:carol-draft:edit:d-0', { type: 'usage', metric: 'material.edit', daysBack: 0, actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 1, private: true }),
+];
+
+/**
+ * Deterministic webhook event fixtures used to exercise signature
+ * verification and replay-window enforcement. Each fixture carries:
+ *   - provider:  webhook provider key (e.g. "stripe", "internal")
+ *   - eventId:   provider-assigned event identifier (dedupe key)
+ *   - timestamp: ISO timestamp the signature was computed against
+ *   - payload:   JSON string body the signature covers
+ *   - signature: HMAC-SHA256 hex digest over `${timestamp}.${payload}`
+ *   - status:    "processed" | "rejected" | "duplicate"
+ *   - reason:    structured rejection reason when not processed
+ */
+function makeWebhookFixture(key, { provider, eventId, daysBack, payload, status, reason }) {
+  const timestamp = daysAgo(daysBack).toISOString();
+  const body = JSON.stringify(payload);
+  return {
+    _id:        deterministicId(`webhook:${key}`),
+    provider,
+    eventId,
+    timestamp,
+    payload:    body,
+    signature:  signWebhookPayload(`${timestamp}.${body}`),
+    status,
+    reason:     reason ?? null,
+    createdAt:  daysAgo(daysBack),
+    updatedAt:  daysAgo(daysBack),
+  };
+}
+
+const WEBHOOK_EVENTS = [
+  makeWebhookFixture('valid:purchase', {
+    provider: 'internal',
+    eventId:  'evt_valid_purchase_0001',
+    daysBack: 1,
+    payload:  { type: 'purchase.confirmed', purchaseId: PURCHASE_IDS.dave, materialId: MATERIALS[0].materialId },
+    status:   'processed',
+  }),
+  makeWebhookFixture('valid:refund', {
+    provider: 'internal',
+    eventId:  'evt_valid_refund_0001',
+    daysBack: 2,
+    payload:  { type: 'refund.completed', purchaseId: PURCHASE_IDS.eve, materialId: MATERIALS[2].materialId },
+    status:   'processed',
+  }),
+  makeWebhookFixture('duplicate:purchase', {
+    provider: 'internal',
+    eventId:  'evt_valid_purchase_0001',
+    daysBack: 1,
+    payload:  { type: 'purchase.confirmed', purchaseId: PURCHASE_IDS.dave, materialId: MATERIALS[0].materialId },
+    status:   'duplicate',
+    reason:   'duplicate_event',
+  }),
+  makeWebhookFixture('stale:purchase', {
+    provider: 'internal',
+    eventId:  'evt_stale_purchase_0001',
+    daysBack: 30,
+    payload:  { type: 'purchase.confirmed', purchaseId: PURCHASE_IDS.frank, materialId: MATERIALS[4].materialId },
+    status:   'rejected',
+    reason:   'stale_timestamp',
+  }),
 ];
 
 /**
@@ -651,7 +584,6 @@ async function main() {
         ...ENTITLEMENTS.map(d => d._id),
         ...REFUNDS.map(d => d._id),
         ...ANALYTICS_EVENTS.map(d => d._id),
-        ...WEBHOOK_FIXTURES.map(d => d._id),
         ...WEBHOOK_EVENTS.map(d => d._id),
       ];
       await db.collection('users').deleteMany({ _id: { $in: ids } });
@@ -660,7 +592,6 @@ async function main() {
       await db.collection('entitlement_cache').deleteMany({ _id: { $in: ids } });
       await db.collection('refunds').deleteMany({ _id: { $in: ids } });
       await db.collection('analytics_events').deleteMany({ _id: { $in: ids } });
-      await db.collection('webhook_fixtures').deleteMany({ _id: { $in: ids } });
       await db.collection('webhook_events').deleteMany({ _id: { $in: ids } });
       warn('Existing fixture documents cleared.');
     }
@@ -689,13 +620,9 @@ async function main() {
     const evtResult = await upsertAll(db.collection('analytics_events'), ANALYTICS_EVENTS);
     ok(`analytics_events: ${evtResult.inserted} inserted, ${evtResult.updated} updated`);
 
-    log(`Seeding webhook_fixtures (${WEBHOOK_FIXTURES.length} signed fixtures) …`);
-    const whFixResult = await upsertAll(db.collection('webhook_fixtures'), WEBHOOK_FIXTURES);
-    ok(`webhook_fixtures: ${whFixResult.inserted} inserted, ${whFixResult.updated} updated`);
-
-    log(`Seeding webhook_events (${WEBHOOK_EVENTS.length} processed event IDs) …`);
-    const whEvtResult = await upsertAll(db.collection('webhook_events'), WEBHOOK_EVENTS);
-    ok(`webhook_events: ${whEvtResult.inserted} inserted, ${whEvtResult.updated} updated`);
+    log(`Seeding webhook_events (${WEBHOOK_EVENTS.length} replay-protection fixtures) …`);
+    const whResult = await upsertAll(db.collection('webhook_events'), WEBHOOK_EVENTS);
+    ok(`webhook_events: ${whResult.inserted} inserted, ${whResult.updated} updated`);
 
     // Print counts for quick verification.
     const counts = {
@@ -705,7 +632,6 @@ async function main() {
       entitlement_cache: await db.collection('entitlement_cache').countDocuments(),
       refunds:           await db.collection('refunds').countDocuments(),
       analytics_events:  await db.collection('analytics_events').countDocuments(),
-      webhook_fixtures:  await db.collection('webhook_fixtures').countDocuments(),
       webhook_events:    await db.collection('webhook_events').countDocuments(),
     };
 
@@ -722,20 +648,6 @@ async function main() {
         0,
       );
       ok(`trend[${window.name}] schemaVersion=${report.schemaVersion} buckets=${report.series.length} total=${total}`);
-    }
-
-    // Validate the signed-webhook fixtures against the replay-window guard so
-    // local devs get an immediate signal if the verifier contract drifts.
-    log('Validating signed webhook fixtures …');
-    const processedIds = new Set(WEBHOOK_EVENTS.map(e => e.eventId));
-    for (const fixture of WEBHOOK_FIXTURES) {
-      const expected = fixture.key.split(':')[0];
-      const ageMs = NOW.getTime() - fixture.occurredAt.getTime();
-      const computed = signWebhookPayload(fixture.canonical);
-      const sigOk = computed === fixture.signature;
-      const fresh = ageMs <= fixture.replayWindowMs;
-      const dup = processedIds.has(fixture.eventId);
-      ok(`webhook[${fixture.key}] expected=${expected} sigOk=${sigOk} fresh=${fresh} duplicate=${dup}`);
     }
 
     ok('Fixture seeding complete.');
