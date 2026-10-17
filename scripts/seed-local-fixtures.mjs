@@ -13,6 +13,9 @@
  *   purchases         – 3 completed purchases (one per buyer)
  *   entitlement_cache – 3 active entitlement entries derived from purchases
  *   refunds           – 2 refund records (one pending, one completed)
+ *   analytics_events  – deterministic usage/failure/recovery/domain events
+ *   webhook_events    – deterministic processed webhook event IDs (replay guard)
+ *   webhook_fixtures  – signed webhook payload fixtures for local verification
  *
  * Usage:
  *   node scripts/seed-local-fixtures.mjs
@@ -21,15 +24,20 @@
  *   MONGODB_URI  – defaults to mongodb://localhost:27017/eduvault
  *   MONGODB_DB   – defaults to eduvault
  *   FORCE_RESEED – set to "true" to drop and recreate all fixture documents
+ *   SEED_ANCHOR  – ISO date used as "now" for deterministic trend fixtures
+ *   WEBHOOK_SECRET – shared HMAC secret used to sign local webhook fixtures
  */
 
 import { MongoClient, ObjectId } from 'mongodb';
+import { createHmac } from 'node:crypto';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 const MONGODB_URI = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/eduvault';
 const MONGODB_DB  = process.env.MONGODB_DB  ?? 'eduvault';
 const FORCE       = process.env.FORCE_RESEED === 'true';
+const SEED_ANCHOR = process.env.SEED_ANCHOR ?? '2024-06-01T00:00:00.000Z';
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? 'eduvault-local-webhook-secret';
 
 /**
  * Produce a deterministic ObjectId from an ASCII string seed.
@@ -46,8 +54,18 @@ function deterministicId(seed) {
   return new ObjectId(hex);
 }
 
-const NOW = new Date();
+/**
+ * Produce a deterministic HMAC-SHA256 signature over a canonical payload
+ * string. Mirrors the server-side verifier so local fixtures exercise the
+ * exact same code path as production webhooks.
+ */
+function signWebhookPayload(payloadString, secret = WEBHOOK_SECRET) {
+  return createHmac('sha256', secret).update(payloadString, 'utf8').digest('hex');
+}
+
+const NOW = new Date(SEED_ANCHOR);
 const DAY = 86_400_000;
+const HOUR = 3_600_000;
 
 function daysAgo(n) { return new Date(NOW - n * DAY); }
 function daysFromNow(n) { return new Date(NOW.getTime() + n * DAY); }
@@ -55,6 +73,8 @@ function daysFromNow(n) { return new Date(NOW.getTime() + n * DAY); }
 function log(msg)  { console.log(`  [seed] ${msg}`); }
 function ok(msg)   { console.log(`  [seed] ✓ ${msg}`); }
 function warn(msg) { console.warn(`  [seed] ⚠ ${msg}`); }
+function hoursAgo(n) { return new Date(NOW.getTime() - n * HOUR); }
+function minutesAgo(n) { return new Date(NOW.getTime() - n * 60_000); }
 
 // ── fixture definitions ───────────────────────────────────────────────────────
 
@@ -348,6 +368,252 @@ const REFUNDS = [
   },
 ];
 
+/**
+ * Deterministic webhook fixtures exercising the signed-webhook verifier.
+ *
+ * Each fixture carries the canonical payload string, the HMAC signature that
+ * a provider would send, and the expected verification outcome. The
+ * `webhook_events` collection stores only *processed* event IDs so the
+ * replay-window guard can reject duplicates without repeating side effects.
+ *
+ * Expected outcomes:
+ *   valid     – signature matches, timestamp within window, unseen event ID
+ *   invalid   – signature does not match the payload
+ *   stale     – timestamp older than the replay window
+ *   duplicate – event ID already present in webhook_events
+ *   malformed – payload is not valid JSON or missing required fields
+ */
+const WEBHOOK_REPLAY_WINDOW_MS = 5 * 60_000; // 5 minutes
+
+function makeWebhookFixture(key, { eventId, provider, eventType, occurredAt, payload, tamper, malformed }) {
+  const canonical = malformed ? payload : JSON.stringify(payload);
+  const signature = tamper
+    ? signWebhookPayload(canonical).replace(/^./, c => (c === '0' ? '1' : '0'))
+    : signWebhookPayload(canonical);
+  return {
+    _id:         deterministicId(`webhook:${key}`),
+    key,
+    provider,
+    eventId,
+    eventType,
+    occurredAt,
+    payload:     malformed ? payload : payload,
+    canonical,
+    signature,
+    headers: {
+      'x-eduvault-signature': `sha256=${signature}`,
+      'x-eduvault-timestamp': occurredAt.toISOString(),
+      'x-eduvault-event-id':  eventId,
+    },
+    replayWindowMs: WEBHOOK_REPLAY_WINDOW_MS,
+    createdAt:   occurredAt,
+    updatedAt:   occurredAt,
+  };
+}
+
+const WEBHOOK_FIXTURES = [
+  makeWebhookFixture('valid:purchase-confirmed', {
+    eventId:   'evt_local_valid_purchase_0001',
+    provider:  'internal',
+    eventType: 'purchase.confirmed',
+    occurredAt: minutesAgo(1),
+    payload: {
+      eventId:   'evt_local_valid_purchase_0001',
+      eventType: 'purchase.confirmed',
+      purchaseId: PURCHASE_IDS.dave,
+      materialId: MATERIALS[0].materialId,
+      buyerAddress: WALLETS.dave,
+      amount: 10_000_000,
+    },
+  }),
+  makeWebhookFixture('invalid:bad-signature', {
+    eventId:   'evt_local_invalid_sig_0001',
+    provider:  'internal',
+    eventType: 'refund.requested',
+    occurredAt: minutesAgo(2),
+    tamper:    true,
+    payload: {
+      eventId:   'evt_local_invalid_sig_0001',
+      eventType: 'refund.requested',
+      purchaseId: PURCHASE_IDS.eve,
+      materialId: MATERIALS[2].materialId,
+      amount: 19_000_000,
+    },
+  }),
+  makeWebhookFixture('stale:outside-window', {
+    eventId:   'evt_local_stale_0001',
+    provider:  'internal',
+    eventType: 'purchase.confirmed',
+    occurredAt: new Date(NOW.getTime() - WEBHOOK_REPLAY_WINDOW_MS - 60_000),
+    payload: {
+      eventId:   'evt_local_stale_0001',
+      eventType: 'purchase.confirmed',
+      purchaseId: PURCHASE_IDS.frank,
+      materialId: MATERIALS[4].materialId,
+      amount: 30_000_000,
+    },
+  }),
+  makeWebhookFixture('duplicate:already-processed', {
+    eventId:   'evt_local_duplicate_0001',
+    provider:  'internal',
+    eventType: 'purchase.confirmed',
+    occurredAt: minutesAgo(3),
+    payload: {
+      eventId:   'evt_local_duplicate_0001',
+      eventType: 'purchase.confirmed',
+      purchaseId: PURCHASE_IDS.dave,
+      materialId: MATERIALS[0].materialId,
+      amount: 10_000_000,
+    },
+  }),
+  makeWebhookFixture('malformed:not-json', {
+    eventId:   'evt_local_malformed_0001',
+    provider:  'internal',
+    eventType: 'unknown',
+    occurredAt: minutesAgo(1),
+    malformed: true,
+    payload:   '{"eventId":"evt_local_malformed_0001",',
+  }),
+];
+
+/**
+ * Processed webhook event IDs. Only the duplicate fixture's event ID is
+ * pre-recorded so the verifier rejects it as a replay. All other fixtures
+ * remain unprocessed so their side effects can run exactly once.
+ */
+const WEBHOOK_EVENTS = [
+  {
+    _id:        deterministicId('webhook-event:evt_local_duplicate_0001'),
+    eventId:    'evt_local_duplicate_0001',
+    provider:   'internal',
+    eventType:  'purchase.confirmed',
+    status:     'processed',
+    processedAt: minutesAgo(3),
+    signature:  WEBHOOK_FIXTURES.find(f => f.key === 'duplicate:already-processed').signature,
+    createdAt:  minutesAgo(3),
+    updatedAt:  minutesAgo(3),
+  },
+];
+
+/**
+ * Deterministic analytics events used to exercise historical trend
+ * aggregation. Each event carries:
+ *   - type:     usage | failure | recovery | domain
+ *   - metric:   stable metric key the aggregator groups by
+ *   - window:   coarse bucket hint (day) for deterministic rollups
+ *   - actor:    wallet address (redacted in exports, kept for local dev)
+ *   - subject:  materialId or purchaseId the event pertains to
+ *   - value:    numeric contribution (counts, durations, amounts)
+ *   - private:  true when the event must be redacted in exported reports
+ */
+const EVENT_TYPES = ['usage', 'failure', 'recovery', 'domain'];
+
+function makeEvent(key, { type, metric, daysBack, actor, subject, value, private: isPrivate = false }) {
+  const occurredAt = daysAgo(daysBack);
+  return {
+    _id:        deterministicId(`event:${key}`),
+    type,
+    metric,
+    actor,
+    subject,
+    value,
+    private:    isPrivate,
+    occurredAt,
+    window:     occurredAt.toISOString().slice(0, 10),
+    createdAt:  occurredAt,
+    updatedAt:  occurredAt,
+  };
+}
+
+const ANALYTICS_EVENTS = [
+  // ── usage: material views across the last 30 days ─────────────────────────
+  makeEvent('usage:alice-intro:d-1',  { type: 'usage', metric: 'material.view', daysBack: 1,  actor: WALLETS.dave,  subject: MATERIALS[0].materialId, value: 12 }),
+  makeEvent('usage:alice-intro:d-5',  { type: 'usage', metric: 'material.view', daysBack: 5,  actor: WALLETS.eve,   subject: MATERIALS[0].materialId, value: 8 }),
+  makeEvent('usage:alice-intro:d-12', { type: 'usage', metric: 'material.view', daysBack: 12, actor: WALLETS.frank, subject: MATERIALS[0].materialId, value: 5 }),
+  makeEvent('usage:bob-defi:d-2',     { type: 'usage', metric: 'material.view', daysBack: 2,  actor: WALLETS.dave,  subject: MATERIALS[2].materialId, value: 9 }),
+  makeEvent('usage:bob-defi:d-9',     { type: 'usage', metric: 'material.view', daysBack: 9,  actor: WALLETS.eve,   subject: MATERIALS[2].materialId, value: 4 }),
+  makeEvent('usage:carol-sec:d-3',    { type: 'usage', metric: 'material.view', daysBack: 3,  actor: WALLETS.frank, subject: MATERIALS[4].materialId, value: 7 }),
+  makeEvent('usage:carol-sec:d-20',   { type: 'usage', metric: 'material.view', daysBack: 20, actor: WALLETS.dave,  subject: MATERIALS[4].materialId, value: 3 }),
+
+  // ── usage: storage sync operations ────────────────────────────────────────
+  makeEvent('usage:sync:alice:d-1',   { type: 'usage', metric: 'storage.sync',   daysBack: 1,  actor: WALLETS.alice, subject: MATERIALS[0].materialId, value: 1 }),
+  makeEvent('usage:sync:bob:d-4',     { type: 'usage', metric: 'storage.sync',   daysBack: 4,  actor: WALLETS.bob,   subject: MATERIALS[2].materialId, value: 1 }),
+  makeEvent('usage:sync:carol:d-10',  { type: 'usage', metric: 'storage.sync',   daysBack: 10, actor: WALLETS.carol, subject: MATERIALS[4].materialId, value: 1 }),
+
+  // ── failure: storage / entitlement failures ───────────────────────────────
+  makeEvent('failure:sync:carol:d-0', { type: 'failure', metric: 'storage.sync.failed', daysBack: 0,  actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 1 }),
+  makeEvent('failure:sync:carol:d-6', { type: 'failure', metric: 'storage.sync.failed', daysBack: 6,  actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 1 }),
+  makeEvent('failure:ent:d-3',        { type: 'failure', metric: 'entitlement.miss',    daysBack: 3,  actor: WALLETS.eve,   subject: MATERIALS[2].materialId, value: 1 }),
+  makeEvent('failure:ent:d-14',       { type: 'failure', metric: 'entitlement.miss',    daysBack: 14, actor: WALLETS.dave,  subject: MATERIALS[0].materialId, value: 1 }),
+
+  // ── recovery: retries and refund completions ──────────────────────────────
+  makeEvent('recovery:sync:carol:d-0', { type: 'recovery', metric: 'storage.sync.retried', daysBack: 0, actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 1 }),
+  makeEvent('recovery:sync:carol:d-6', { type: 'recovery', metric: 'storage.sync.retried', daysBack: 6, actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 1 }),
+  makeEvent('recovery:refund:d-4',     { type: 'recovery', metric: 'refund.completed',     daysBack: 4, actor: WALLETS.dave,  subject: MATERIALS[0].materialId, value: 9_500_000 }),
+
+  // ── domain: purchases, refunds, marketplace activity ──────────────────────
+  makeEvent('domain:purchase:dave:d-20',  { type: 'domain', metric: 'purchase.confirmed', daysBack: 20, actor: WALLETS.dave,  subject: MATERIALS[0].materialId, value: 10_000_000 }),
+  makeEvent('domain:purchase:eve:d-15',   { type: 'domain', metric: 'purchase.confirmed', daysBack: 15, actor: WALLETS.eve,   subject: MATERIALS[2].materialId, value: 20_000_000 }),
+  makeEvent('domain:purchase:frank:d-10', { type: 'domain', metric: 'purchase.confirmed', daysBack: 10, actor: WALLETS.frank, subject: MATERIALS[4].materialId, value: 30_000_000 }),
+  makeEvent('domain:refund:eve:d-2',      { type: 'domain', metric: 'refund.requested',   daysBack: 2,  actor: WALLETS.eve,   subject: MATERIALS[2].materialId, value: 19_000_000 }),
+  makeEvent('domain:refund:dave:d-5',     { type: 'domain', metric: 'refund.requested',   daysBack: 5,  actor: WALLETS.dave,  subject: MATERIALS[0].materialId, value: 9_500_000 }),
+
+  // ── private: must be redacted in exported reports ─────────────────────────
+  makeEvent('private:carol-draft:view:d-1', { type: 'usage', metric: 'material.view', daysBack: 1, actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 2, private: true }),
+  makeEvent('private:carol-draft:edit:d-0', { type: 'usage', metric: 'material.edit', daysBack: 0, actor: WALLETS.carol, subject: MATERIALS[5].materialId, value: 1, private: true }),
+];
+
+/**
+ * Trend aggregation windows. Each window defines a deterministic bucket
+ * size (in days) and the number of buckets to emit, ending at NOW.
+ */
+const TREND_WINDOWS = [
+  { name: 'daily',   bucketDays: 1,  buckets: 30 },
+  { name: 'weekly',  bucketDays: 7,  buckets: 12 },
+  { name: 'monthly', bucketDays: 30, buckets: 6  },
+];
+
+/**
+ * Deterministic aggregation over ANALYTICS_EVENTS for a given window.
+ * Returns a report shape with a schema version so downstream consumers can
+ * evolve safely. Private events are aggregated into a redacted bucket.
+ */
+function aggregateTrends(events, window) {
+  const { name, bucketDays, buckets } = window;
+  const bucketMs = bucketDays * DAY;
+  const endMs = NOW.getTime();
+  const startMs = endMs - buckets * bucketMs;
+
+  const series = Array.from({ length: buckets }, (_, i) => ({
+    bucketStart: new Date(startMs + i * bucketMs).toISOString(),
+    bucketEnd:   new Date(startMs + (i + 1) * bucketMs).toISOString(),
+    totals:      { usage: 0, failure: 0, recovery: 0, domain: 0 },
+    redacted:    0,
+  }));
+
+  for (const ev of events) {
+    const t = ev.occurredAt.getTime();
+    if (t < startMs || t >= endMs) continue;
+    const idx = Math.min(buckets - 1, Math.floor((t - startMs) / bucketMs));
+    const bucket = series[idx];
+    if (ev.private) {
+      bucket.redacted += 1;
+      continue;
+    }
+    if (EVENT_TYPES.includes(ev.type)) {
+      bucket.totals[ev.type] += ev.value;
+    }
+  }
+
+  return {
+    schemaVersion: 1,
+    window:        name,
+    bucketDays,
+    generatedAt:   NOW.toISOString(),
+    series,
+  };
+}
+
 // ── seeding logic ─────────────────────────────────────────────────────────────
 
 async function upsertAll(collection, docs, labelFn) {
@@ -384,12 +650,18 @@ async function main() {
         ...PURCHASES.map(d => d._id),
         ...ENTITLEMENTS.map(d => d._id),
         ...REFUNDS.map(d => d._id),
+        ...ANALYTICS_EVENTS.map(d => d._id),
+        ...WEBHOOK_FIXTURES.map(d => d._id),
+        ...WEBHOOK_EVENTS.map(d => d._id),
       ];
       await db.collection('users').deleteMany({ _id: { $in: ids } });
       await db.collection('materials').deleteMany({ _id: { $in: ids } });
       await db.collection('purchases').deleteMany({ _id: { $in: ids } });
       await db.collection('entitlement_cache').deleteMany({ _id: { $in: ids } });
       await db.collection('refunds').deleteMany({ _id: { $in: ids } });
+      await db.collection('analytics_events').deleteMany({ _id: { $in: ids } });
+      await db.collection('webhook_fixtures').deleteMany({ _id: { $in: ids } });
+      await db.collection('webhook_events').deleteMany({ _id: { $in: ids } });
       warn('Existing fixture documents cleared.');
     }
 
@@ -413,6 +685,18 @@ async function main() {
     const refResult = await upsertAll(db.collection('refunds'), REFUNDS);
     ok(`refunds: ${refResult.inserted} inserted, ${refResult.updated} updated`);
 
+    log(`Seeding analytics_events (${ANALYTICS_EVENTS.length} deterministic events) …`);
+    const evtResult = await upsertAll(db.collection('analytics_events'), ANALYTICS_EVENTS);
+    ok(`analytics_events: ${evtResult.inserted} inserted, ${evtResult.updated} updated`);
+
+    log(`Seeding webhook_fixtures (${WEBHOOK_FIXTURES.length} signed fixtures) …`);
+    const whFixResult = await upsertAll(db.collection('webhook_fixtures'), WEBHOOK_FIXTURES);
+    ok(`webhook_fixtures: ${whFixResult.inserted} inserted, ${whFixResult.updated} updated`);
+
+    log(`Seeding webhook_events (${WEBHOOK_EVENTS.length} processed event IDs) …`);
+    const whEvtResult = await upsertAll(db.collection('webhook_events'), WEBHOOK_EVENTS);
+    ok(`webhook_events: ${whEvtResult.inserted} inserted, ${whEvtResult.updated} updated`);
+
     // Print counts for quick verification.
     const counts = {
       users:             await db.collection('users').countDocuments(),
@@ -420,10 +704,39 @@ async function main() {
       purchases:         await db.collection('purchases').countDocuments(),
       entitlement_cache: await db.collection('entitlement_cache').countDocuments(),
       refunds:           await db.collection('refunds').countDocuments(),
+      analytics_events:  await db.collection('analytics_events').countDocuments(),
+      webhook_fixtures:  await db.collection('webhook_fixtures').countDocuments(),
+      webhook_events:    await db.collection('webhook_events').countDocuments(),
     };
 
     log('Collection totals after seed:');
     Object.entries(counts).forEach(([col, n]) => log(`  ${col}: ${n} documents`));
+
+    // Emit deterministic trend reports for each configured window so that
+    // maintainer analytics can be validated against fixture data.
+    log('Computing deterministic trend aggregations …');
+    for (const window of TREND_WINDOWS) {
+      const report = aggregateTrends(ANALYTICS_EVENTS, window);
+      const total = report.series.reduce(
+        (acc, b) => acc + Object.values(b.totals).reduce((a, v) => a + v, 0),
+        0,
+      );
+      ok(`trend[${window.name}] schemaVersion=${report.schemaVersion} buckets=${report.series.length} total=${total}`);
+    }
+
+    // Validate the signed-webhook fixtures against the replay-window guard so
+    // local devs get an immediate signal if the verifier contract drifts.
+    log('Validating signed webhook fixtures …');
+    const processedIds = new Set(WEBHOOK_EVENTS.map(e => e.eventId));
+    for (const fixture of WEBHOOK_FIXTURES) {
+      const expected = fixture.key.split(':')[0];
+      const ageMs = NOW.getTime() - fixture.occurredAt.getTime();
+      const computed = signWebhookPayload(fixture.canonical);
+      const sigOk = computed === fixture.signature;
+      const fresh = ageMs <= fixture.replayWindowMs;
+      const dup = processedIds.has(fixture.eventId);
+      ok(`webhook[${fixture.key}] expected=${expected} sigOk=${sigOk} fresh=${fresh} duplicate=${dup}`);
+    }
 
     ok('Fixture seeding complete.');
   } catch (err) {
