@@ -145,6 +145,8 @@ Use `.env.example` as the main reference for local configuration.
 | `NEXT_PUBLIC_HORIZON_URL` | Planned | Horizon endpoint for account and event indexing |
 | `NEXT_PUBLIC_SOROBAN_CONTRACT_ID` | Planned | Contract ID for entitlement and payment logic |
 | `NEXT_PUBLIC_ACCEPTED_ASSET` | Planned | Default accepted asset such as `XLM` or `USDC` |
+| `WEBHOOK_SIGNING_SECRET` | Yes | HMAC secret used to verify inbound webhook signatures |
+| `WEBHOOK_REPLAY_WINDOW_SECONDS` | No | Max age in seconds for webhook timestamps. Defaults to `300` |
 
 ## Available Scripts
 
@@ -156,6 +158,10 @@ npm run lint
 npm test
 npm run test:contracts
 npm run test:backend
+npm run worker:background
+npm run worker:background:once
+npm run worker:background:status
+npm run worker:background:reprocess
 npm run audit:deps
 npm run scan:secrets
 ```
@@ -180,6 +186,16 @@ Run archived Solidity prototype tests:
 npm run test:contracts
 ```
 
+## Webhook Verification
+
+Inbound webhooks and integration callbacks are verified with an HMAC-SHA256 signature over the raw request body and a `X-Webhook-Timestamp` header. Requests are rejected with structured errors when:
+
+- The signature is missing or invalid (`invalid_signature`).
+- The timestamp is outside `WEBHOOK_REPLAY_WINDOW_SECONDS` (`stale_timestamp`).
+- The event ID has already been processed (`duplicate_event`).
+
+Processed event IDs are persisted so duplicate valid events do not repeat side effects.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)
@@ -188,12 +204,14 @@ npm run test:contracts
 - [Environment Setup](docs/environment-setup.md)
 - [Contribution Guide](docs/contributing.md)
 - [Backend Contracts](docs/backend-contracts.md)
+- [Record Provenance](docs/provenance.md)
 - [Stellar Purchase Flow](docs/stellar-purchase-flow.md)
 - [Stellar Wallet Setup](docs/stellar-wallet-setup.md)
 - [Creator Publishing Guide](docs/creator-publishing-guide.md)
 - [Soroban Contract Architecture](docs/soroban-contract-architecture.md)
 - [Stellar Integration Guide](docs/stellar-integration.md)
 - [Incident Triage and Emergency Rollback Runbook](docs/incident-triage-runbook.md)
+- [Webhook Verification](docs/webhook-verification.md)
 
 ## Deployment Notes
 
@@ -201,6 +219,7 @@ npm run test:contracts
 - Placeholder secrets should not be used in preview or production environments.
 - Required production values include `JWT_SECRET`, `MONGODB_URI`, `PINATA_JWT`, `NEXT_PUBLIC_APP_URL`, and `NEXT_PUBLIC_GATEWAY_URL`.
 - Once Stellar features are enabled, production must also include valid Stellar RPC, Horizon, and contract configuration.
+- Production must set `WEBHOOK_SIGNING_SECRET` and keep `WEBHOOK_REPLAY_WINDOW_SECONDS` small (e.g. `300`).
 
 ## Roadmap
 
