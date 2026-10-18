@@ -16,6 +16,10 @@ Canonical serialization and strict input normalization rules for signed,
 hashed, compared, or settled payloads are defined in
 [`docs/canonical-serialization.md`](canonical-serialization.md).
 
+Capability token specifications, security invariants, and operational runbooks for
+sensitive actions are documented in
+[`docs/expiring-capability-tokens.md`](expiring-capability-tokens.md).
+
 ## Collections
 
 ### `users`
