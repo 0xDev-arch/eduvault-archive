@@ -16,6 +16,10 @@ Canonical serialization and strict input normalization rules for signed,
 hashed, compared, or settled payloads are defined in
 [`docs/canonical-serialization.md`](canonical-serialization.md).
 
+Load test specifications, resource budget ceilings, and operational runbooks for
+worst-case cardinality and burst traffic are documented in
+[`docs/load-testing-cardinality-burst.md`](load-testing-cardinality-burst.md).
+
 ## Collections
 
 ### `users`
