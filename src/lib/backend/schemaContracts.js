@@ -44,6 +44,9 @@ export const COLLECTIONS = {
   // Time-bounded maintainer impersonation / support access (see
   // src/lib/auth/supportAccess.js). Immutable audit lives in audit_ledger.
   supportSessions: "support_sessions",
+  // #1001: Tamper-evident administrative configuration change audit evidence
+  configAuditEvidence: "config_audit_evidence",
+  systemConfig: "system_config",
 };
 
 export const REQUIRED_INDEXES = {
@@ -218,6 +221,18 @@ export const REQUIRED_INDEXES = {
   ],
   audit_checkpoints: [
     { keys: { sequence: 1 }, options: { unique: true } },
+  ],
+  config_audit_evidence: [
+    { keys: { sequence: 1 }, options: { unique: true } },
+    { keys: { operationId: 1 }, options: { unique: true } },
+    { keys: { evidenceId: 1 }, options: { unique: true } },
+    { keys: { settingKey: 1, createdAt: -1 } },
+    { keys: { category: 1, createdAt: -1 } },
+    { keys: { "actor.id": 1, createdAt: -1 } },
+  ],
+  system_config: [
+    { keys: { _id: 1 }, options: { unique: true } },
+    { keys: { category: 1 } },
   ],
   [ADMIN_AUDIT_COLLECTION]: ADMIN_AUDIT_INDEXES,
   material_search_documents: [
