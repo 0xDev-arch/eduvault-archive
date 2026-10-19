@@ -238,3 +238,10 @@ below summarises the namespace-to-subsystem relationship:
 | `ST_STORAGE_`        | IPFS / Pinata storage             |
 | `EVT_INDEXER_`       | Stellar event indexer             |
 | `EVT_WEBHOOK_`       | Webhook delivery                    |
+
+## Pagination, Filtering, and Authorization Boundary Contracts
+
+Comprehensive specification of cursor keyset pagination, lifecycle filter invariants, and four-tier authorization boundaries (Public, Buyer, Creator, Operator) are defined in [`docs/pagination-filtering-authorization-contracts.md`](pagination-filtering-authorization-contracts.md).
+
+Executable contract tests covering normal, failure, retry, and authorization paths are implemented in `tests/backend/pagination-filtering-auth-contract.test.mjs` and `src/lib/backend/__tests__/boundaryContract.test.js`.
+

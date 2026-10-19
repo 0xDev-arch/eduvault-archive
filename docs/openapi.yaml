@@ -629,6 +629,32 @@ components:
         reason:
           type: string
           description: Present when valid is false
+
+    MarketplaceMaterialsResponse:
+      type: object
+      required: [items, pageSize, paginationType]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+        pageSize:
+          type: integer
+        hasNextPage:
+          type: boolean
+        nextCursor:
+          type: string
+        page:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+        paginationType:
+          type: string
+          enum: [cursor, offset]
+        facets:
+          type: object
   responses:
     Unauthorized:
       description: Not authenticated
@@ -653,6 +679,93 @@ security:
   - cookieAuth: []
 
 paths:
+  # --------------------------------------------------------------------------
+  # Marketplace Discovery & Pagination
+  # --------------------------------------------------------------------------
+  /api/market-materials:
+    get:
+      summary: Retrieve and paginate educational materials with filters and cursor keyset pagination
+      operationId: listMarketplaceMaterials
+      tags: [Marketplace]
+      security: []
+      parameters:
+        - name: cursor
+          in: query
+          description: Base64url encoded cursor for keyset pagination
+          schema:
+            type: string
+        - name: pageSize
+          in: query
+          description: Number of items per page (1-100)
+          schema:
+            type: integer
+            default: 12
+        - name: paginationType
+          in: query
+          description: Pagination strategy (cursor or offset)
+          schema:
+            type: string
+            enum: [cursor, offset]
+            default: cursor
+        - name: sortBy
+          in: query
+          description: Sort ordering
+          schema:
+            type: string
+            enum: [newest, price_asc, price_desc, rating_desc, popular, relevance]
+        - name: search
+          in: query
+          description: Fuzzy text search term
+          schema:
+            type: string
+        - name: subject
+          in: query
+          description: Taxonomy subject filter
+          schema:
+            type: string
+        - name: category
+          in: query
+          description: Taxonomy category filter
+          schema:
+            type: string
+        - name: level
+          in: query
+          description: Educational level filter
+          schema:
+            type: string
+        - name: language
+          in: query
+          description: Language filter
+          schema:
+            type: string
+        - name: minPrice
+          in: query
+          schema:
+            type: number
+        - name: maxPrice
+          in: query
+          schema:
+            type: number
+        - name: minRating
+          in: query
+          schema:
+            type: number
+        - name: includeFacets
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Paginated public materials response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplaceMaterialsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   # --------------------------------------------------------------------------
   # Materials
   # --------------------------------------------------------------------------
