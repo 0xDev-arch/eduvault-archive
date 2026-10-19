@@ -16,9 +16,9 @@ Canonical serialization and strict input normalization rules for signed,
 hashed, compared, or settled payloads are defined in
 [`docs/canonical-serialization.md`](canonical-serialization.md).
 
-Capability token specifications, security invariants, and operational runbooks for
-sensitive actions are documented in
-[`docs/expiring-capability-tokens.md`](expiring-capability-tokens.md).
+Load test specifications, resource budget ceilings, and operational runbooks for
+worst-case cardinality and burst traffic are documented in
+[`docs/load-testing-cardinality-burst.md`](load-testing-cardinality-burst.md).
 
 ## Collections
 
@@ -242,3 +242,10 @@ below summarises the namespace-to-subsystem relationship:
 | `ST_STORAGE_`        | IPFS / Pinata storage             |
 | `EVT_INDEXER_`       | Stellar event indexer             |
 | `EVT_WEBHOOK_`       | Webhook delivery                    |
+
+## Pagination, Filtering, and Authorization Boundary Contracts
+
+Comprehensive specification of cursor keyset pagination, lifecycle filter invariants, and four-tier authorization boundaries (Public, Buyer, Creator, Operator) are defined in [`docs/pagination-filtering-authorization-contracts.md`](pagination-filtering-authorization-contracts.md).
+
+Executable contract tests covering normal, failure, retry, and authorization paths are implemented in `tests/backend/pagination-filtering-auth-contract.test.mjs` and `src/lib/backend/__tests__/boundaryContract.test.js`.
+
