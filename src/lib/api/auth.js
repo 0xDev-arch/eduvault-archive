@@ -1,7 +1,10 @@
 import { verifyDashboardToken } from "@/lib/auth/session";
 import { ObjectId } from "mongodb";
+import { timingSafeEqual } from "node:crypto";
 import { getDb } from "@/lib/mongodb";
 import { isSuspendedUser } from "@/lib/auth/suspension";
+import { hasPermission } from "@/lib/auth/permissions";
+import { isSessionRevoked } from "@/lib/auth/sessionRevocation";
 
 export async function getUserFromCookie(request) {
   const cookieHeader = request.headers.get("cookie") || "";
@@ -22,32 +25,90 @@ export async function getFullUserFromCookie(request) {
   try {
     const db = await getDb();
     const users = db.collection("users");
-    return users.findOne({ _id: new ObjectId(payload.sub) });
+    let user = null;
+    try {
+      user = await users.findOne({ _id: new ObjectId(payload.sub) });
+    } catch {
+      user = await users.findOne({ walletAddress: payload.sub });
+    }
+    if (!user) return null;
+    if (isSuspendedUser(user)) return null;
+    if (isSessionRevoked(payload, user).revoked) return null;
+    return user;
   } catch {
     return null;
   }
 }
 
 /**
- * Resolve the caller and reject suspended accounts.
+ * Resolve the caller and reject suspended or revoked accounts.
  *
- * A suspension has to be checked against the database, not the token: the JWT a
- * suspended user already holds stays cryptographically valid until it expires,
- * so signature verification alone would keep letting them in for the rest of
- * the token's lifetime.
+ * A suspension or security revocation has to be checked against the database,
+ * not just the token: the JWT an affected user already holds stays cryptographically
+ * valid until it expires, so signature verification alone would keep letting them in.
  *
  * Returns a discriminated result rather than throwing so handlers can map it
  * straight onto 401 vs 403:
  *
  *   { ok: true,  user }
- *   { ok: false, status: 401 }            — no session
- *   { ok: false, status: 403, user }      — suspended
+ *   { ok: false, status: 401, code: "SESSION_REVOKED" } — no session or revoked
+ *   { ok: false, status: 403, user }                    — suspended
  */
 export async function requireActiveUser(request) {
-  const user = await getFullUserFromCookie(request);
-  if (!user) return { ok: false, status: 401 };
-  if (isSuspendedUser(user)) return { ok: false, status: 403, user };
-  return { ok: true, user };
+  const payload = await getUserFromCookie(request);
+  if (!payload?.sub) return { ok: false, status: 401 };
+
+  try {
+    const db = await getDb();
+    let user = null;
+    try {
+      user = await db.collection("users").findOne({ _id: new ObjectId(payload.sub) });
+    } catch {
+      user = await db.collection("users").findOne({ walletAddress: payload.sub });
+    }
+    if (!user) return { ok: false, status: 401 };
+    const currentUser = { ...payload, ...user, sub: payload.sub, role: user.role };
+    if (isSuspendedUser(currentUser)) return { ok: false, status: 403, user: currentUser };
+
+    const revocation = isSessionRevoked(payload, currentUser);
+    if (revocation.revoked) {
+      return {
+        ok: false,
+        status: 401,
+        code: revocation.code || "SESSION_REVOKED",
+        reason: revocation.reason,
+      };
+    }
+
+    return { ok: true, user: currentUser };
+  } catch {
+    return { ok: false, status: 401 };
+  }
+}
+
+function matchesServiceToken(request) {
+  const supplied = request.headers.get("x-admin-token") || "";
+  const configured = process.env.ADMIN_API_TOKEN || "";
+  if (!supplied || !configured) return false;
+
+  const suppliedBytes = Buffer.from(supplied);
+  const configuredBytes = Buffer.from(configured);
+  return suppliedBytes.length === configuredBytes.length &&
+    timingSafeEqual(suppliedBytes, configuredBytes);
+}
+
+export async function requirePermission(request, permission, { allowService = false } = {}) {
+  if (allowService && matchesServiceToken(request)) {
+    const service = { sub: "service:admin-api", role: "service" };
+    return hasPermission(service, permission)
+      ? { ok: true, user: service }
+      : { ok: false, status: 403 };
+  }
+
+  const result = await requireActiveUser(request);
+  if (!result.ok) return result;
+  if (!hasPermission(result.user, permission)) return { ok: false, status: 403, user: result.user };
+  return result;
 }
 
 /**
@@ -56,24 +117,8 @@ export async function requireActiveUser(request) {
  * or not an admin, so route handlers can respond with a consistent 401/403.
  */
 export async function requireAdmin(request) {
-  const payload = await getUserFromCookie(request);
-  if (!payload || payload.role !== "admin") return null;
-
-  // A suspended admin is still an admin as far as the token is concerned, so
-  // the flag has to be read from the database before granting the privilege.
-  try {
-    const db = await getDb();
-    const user = await db
-      .collection("users")
-      .findOne({ _id: new ObjectId(payload.sub) });
-    if (isSuspendedUser(user)) return null;
-  } catch {
-    // A lookup failure must not silently upgrade a suspended admin, so fail
-    // closed rather than falling through to the token payload.
-    return null;
-  }
-
-  return payload;
+  const result = await requirePermission(request, "admin:access");
+  return result.ok ? result.user : null;
 }
 
 export function sanitizeString(value, { maxLength = 5000 } = {}) {

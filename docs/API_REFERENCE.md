@@ -117,7 +117,7 @@ Codes are prefixed by subsystem:
 | `EVT_REFUND_007` | 401 | false | Refund authorization expired — the refund authorization payload has passed its expiry timestamp. | `contact_support` |
 | `EVT_REFUND_008` | 422 | false | Insufficient escrow balance — escrow does not hold enough funds to cover the refund amount. | `contact_support` |
 | `EVT_REFUND_009` | 422 | false | Purchase buyer not found — the PurchaseBuyer mapping is missing; refund cannot identify the recipient. | `contact_support` |
-| `EVT_REFUND_010` | 503 | true | Refund transaction failed — the Stellar transaction submission failed after retries. | `retry_later` |
+| `EVT_REFUND_010`| 503 | true | Refund transaction failed — the Stellar transaction submission failed after retries. | `retry_later` |
 | `EVT_REFUND_011` | 404 | false | Purchase not found — no purchase record exists for the given purchase ID. | `none` |
 | `EVT_REFUND_012` | 409 | false | Refund window expired — the refund was requested after the `REFUND_WINDOW_DAYS cutoff. | `contact_support` |
 
@@ -169,7 +169,7 @@ successful idempotent response without repeating side effects.
 | Code | HTTP | Retryable | Description | Support Action |
 |---|---|---|---|---|
 | `EVT_WEBHOOK_001` | 401 | false | Signature verification failed — the HMAC-SHA256 signature on an inbound webhook payload did not verify. | `none` |
-| `EVT_WEBHOOK_002` | 401 | false | Timestamp too old — the `X-EduVault-Timestamp` header indicates the request is outside the replay-prevention window. | `none` |
+| `EVT_WEBHOOK_002` | 401 | false | Timestamp too old — the `X-EduVault-Timestamp` Header indicates the request is outside the replay-prevention window. | `none` |
 | `EVT_WEBHOOK_003` | 400 | false | Malformed payload — the webhook body could not be parsed as valid JSON. | `none` |
 | `EVT_WEBHOOK_004` | 404 | false | Unknown event type — the `event` field does not match any registered webhook event type. | `none` |
 | `EVT_WEBHOOK_005` | 503 | true | Delivery failed — the creator's configured webhook endpoint returned a non-2xx status. | `retry_later` |
@@ -177,3 +177,54 @@ successful idempotent response without repeating side effects.
 | `EVT_WEBHOOK_007` | 429 | true | Rate limit — too many webhook deliveries to this endpoint within the window. | `retry_later` |
 | `EVT_WEBHOOK_008` | 409 | false | Secret rotation in progress — both current and previous signing secrets are temporarily active; signature must match one of them. | `none` |
 | `EVT_WEBHOOK_009` | 409 | false | Duplicate event — the event ID has already been processed; the replay is acknowledged with an idlempotent response and no side effects are repeated. | `none` |
+
+---
+
+## Activity Receipt Errors (`EVT_RECEIPT_`)
+
+Receipts are created for critical operations (purchase, refund, download,
+upload/pin, entitlement grant/revoke, and marketplace listing changes).
+Each receipt has a canonical, stable payload containing the actor, timestamp,
+status, and external references, and is signed so that tampering is detectable.
+
+| Code | HTTP | Retryable | Description | Support Action |
+|---|---|---|---|---|
+| `EVT_AUTH_001` | 401 | false | Missing credentials — the request did not include a valid authentication credential. | `none` |
+| `EVT_AUTH_002` | 401 | false | Invalid token — the provided token failed signature or claim validation. | `none` |
+| `EVT_AUTH_003` | 401 | true | Token expired — the access token has passed its expiry; refresh and retry. | `refresh_capability` |
+| `EVT_AUTH_004` | 403 | false | Insufficient role — the authenticated actor does not hold the required role. | `none` |
+| `EVT_AUTH_005` | 409 | false | Wallet not linked — the authenticated user has no verified wallet address on record. | `link_wallet` |
+
+---
+
+## Contract Errors (`EVT_CONTRACT_`)
+
+| Code | HTTP | Retryable | Description | Support Action |
+|---|---|---|---|---|
+| `EVT_CONTRACT_001` | 500 | true | Contract invocation failed — the Soroban contract returned an unexpected error. | `retry_later` |
+| `EVT_CONTRACT_002` | 503 | true | Contract simulation failed — the pre-flight simulation did not succeed. | `retry_later` |
+| `EVT_CONTRACT_003` | 503 | true | Transaction submission failed — the signed transaction was rejected by the network. | `retry_later` |
+
+---
+
+## Input Errors (`EVT_INPUT_`)
+
+| Code | HTTP | Retryable | Description | Support Action |
+|---|---|---|---|---|
+| `EVT_INPUT_001` | 400 | false | Missing required field — a required field was omitted from the request body or query. | `none` |
+| `EVT_INPUT_002` | 400 | false | Invalid field format — a field failed format validation (e.g. address, CID, or timestamp). | `none` |
+| `EVT_INPUT_003` | 422 | false | Unknown operation type — the requested operation type is not supported. | `none` |
+
+---
+
+## Support Actions
+
+| Action | Meaning |
+|---|---|
+| `none` | No automatic remedy; the request is definitively rejected. |
+| `retry_later` | Wait and repeat the same request. |
+| `refresh_quote` | Re-fetch the material quote and retry with the new values. |
+| `refresh_capability` | Re-issue a download capability token and retry. |
+| `reduce_quantity` | Lower the requested quantity or recipient count and retry. |
+| `contact_support` | Escalate to EduVault support with the code and request ID. |
+| `link_wallet` | Prompt the user to link and verify a wallet address before retrying. |

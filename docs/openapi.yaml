@@ -483,7 +483,7 @@ components:
         affectedOperations:
           type: array
           description: Operation types that were disrupted.
-          items
+          items:
             type: string
             enum: [purchase, import, download, entitlement]
         severity:
@@ -568,13 +568,115 @@ components:
     ReceiptPayload:
       type: object
       description: |
-        Canonical, deterministic receipt payload. The `SKsGNATURE_VERSION` and
+        Canonical, deterministic receipt payload. The `SIGNATURE_VERSION` and
         `SIGNATURE_ALGORITHM` are constants so consumers can recreate the
         canonical bytes and verify the HMAC-SHA256 signature independently.
       required:
         - receiptId
         - operation
         - actor
+        - timestamp
+        - status
+        - references
+        - signatureVersion
+        - signatureAlgorithm
+        - signature
+      properties:
+        receiptId:
+          type: string
+          description: Stable identifier derived from the canonical payload hash
+        operation:
+          type: string
+          enum:
+            - material.create
+            - material.import
+            - purchase.create
+            - entitlement.grant
+            - profile.update
+        actor:
+          type: object
+          required: [type, id]
+          properties:
+            type:
+              type: string
+              enum: [user, system]
+            id:
+              type: string
+              description: User ObjectId or wallet address
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp of when the operation completed
+        status:
+          type: string
+          enum: [success, failure, denied]
+        references:
+          type: object
+          description: External references to the affected resources
+          additionalProperties:
+            type: string
+        signatureVersion:
+          type: string
+          enum: [v1]
+        signatureAlgorithm:
+          type: string
+          enum: [HMAC-SHA256]
+        signature:
+          type: string
+          description: Hex-encoded HMAC-SHA256 over the canonical payload bytes
+
+    Receipt:
+      allOf:
+        - $ref: "#/components/schemas/ReceiptPayload"
+        - type: object
+          required: [createdAt]
+          properties:
+            createdAt:
+              type: string
+              format: date-time
+              description: When the receipt record was persisted
+
+    ReceiptList:
+      type: object
+      required: [receipts, total]
+      properties:
+        receipts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Receipt"
+        total:
+          type: integer
+
+    ReceiptVerification:
+      type: object
+      required: [receiptId, valid]
+      properties:
+        receiptId:
+          type: string
+        valid:
+          type: boolean
+        reason:
+          type: string
+          description: Present when valid is false
+  responses:
+    Unauthorized:
+      description: Not authenticated
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Toot many requests
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
 
 paths:
   /api/webhooks/{provider}:
@@ -636,3 +738,143 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebhookError"
+
+  # --------------------------------------------------------------------------
+  # Materials
+  # --------------------------------------------------------------------------
+  /api/materials:
+    get:
+      summary: List the authenticated user's materials
+      operationId: listMyMaterials
+      tags: [Materials]
+      responses:
+        "200":
+          description: Array of material documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Material"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      summary: Create a new material listing
+      operationId: createMaterial
+      tags: [Materials]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialInput"
+      responses:
+        "201":
+          description: Material created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/materials/import:
+    post:
+      summary: Validate or import structured material records
+      operationId: importMaterials
+      tags: [Materials]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format:
+                  type: string
+                  enum: [json, csv]
+                dryRun:
+                  type: boolean
+                records:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/MaterialImportRecord"
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/MaterialImportRecord"
+      responses:
+        "200":
+          description: Dry-run plan with no errors, or a commit where every row was already imported. Dry runs never write.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialImportResponse"
+        "201":
+          description: Every planned create/update was written
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialImportCommitResponse"
+        "207":
+          description: Partial import — some writes failed; see failedRows and rollback
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialImportCommitResponse"
+        "400":
+          description: Invalid or duplicate rows (plan included, nothing written), or a malformed payload
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/MaterialImportResponse"
+                  - $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/incidents/impact:
+    post:
+      summary: Calculate incident impact across users, records, operations, and time windows
+      operationId: calculateIncidentImpact
+      tags: [Incidents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentInput"
+      responses:
+        "200":
+          description: Deterministic impact report with internal and shareable fields.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentImpactResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"

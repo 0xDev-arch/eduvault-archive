@@ -28,6 +28,9 @@ export const COLLECTIONS = {
   indexerQuarantine: "indexer_quarantine",
   indexerOperatorAudit: "indexer_operator_audit",
   materialPreviews: "material_previews",
+  // #969: import rows held out of the write for an unsafe storageKey. Separate
+  // from the file-level `quarantine` collection used by uploads.
+  importQuarantine: "import_quarantine",
   // Off-chain mirrors maintained by the indexer for event types added in
   // #598 (payouts/escrow/dispute resolutions and the scholarship subsystem).
   bulkPurchases: "bulk_purchases",
@@ -38,7 +41,9 @@ export const COLLECTIONS = {
   adminTransfers: "admin_transfers",
   checkoutQuotes: "checkout_quotes",
   storageQuotaHistory: "storage_quota_history",
-  notifications: "notifications",
+  // Time-bounded maintainer impersonation / support access (see
+  // src/lib/auth/supportAccess.js). Immutable audit lives in audit_ledger.
+  supportSessions: "support_sessions",
 };
 
 export const REQUIRED_INDEXES = {
@@ -55,6 +60,12 @@ export const REQUIRED_INDEXES = {
       options: { unique: true, partialFilterExpression: { externalId: { $type: "string" } }, name: "materials_import_external_id_idx" },
     },
     { keys: { importBatchId: 1 }, options: { sparse: true, name: "materials_import_batch_idx" } },
+    // #888: provenance lookups from the maintainer export endpoint and by
+    // batch/actor/source. Sparse so records predating provenance stay out.
+    { keys: { "provenance.kind": 1 }, options: { name: "materials_provenance_kind_idx", background: true } },
+    { keys: { "provenance.origin.importBatchId": 1 }, options: { sparse: true, name: "materials_provenance_import_batch_idx", background: true } },
+    { keys: { "provenance.origin.materialId": 1 }, options: { sparse: true, name: "materials_provenance_source_idx", background: true } },
+    { keys: { "provenance.actor.walletAddress": 1 }, options: { sparse: true, name: "materials_provenance_actor_idx", background: true } },
     { keys: { visibility: 1, createdAt: -1 } },
     { keys: { materialId: 1 }, options: { sparse: true } },
     { keys: { tokenId: 1 }, options: { unique: true, sparse: true } },
@@ -106,6 +117,15 @@ export const REQUIRED_INDEXES = {
   storage_quota_history: [
     { keys: { provider: 1, checkedAt: -1 } },
     { keys: { checkedAt: 1 }, options: { expireAfterSeconds: 31536000 } },
+  ],
+  // Privacy-preserving analytics: aggregate counters are queryable by a
+  // creator's materials; opaque dedupe keys expire after one short window.
+  material_analytics_aggregates: [
+    { keys: { materialId: 1, day: 1, eventType: 1, source: 1, classification: 1, filterReason: 1 }, options: { unique: true, name: "analytics_daily_bucket_unique" } },
+    { keys: { day: -1, materialId: 1 }, options: { name: "analytics_daily_material_idx" } },
+  ],
+  material_analytics_dedupe: [
+    { keys: { expiresAt: 1 }, options: { expireAfterSeconds: 0, name: "analytics_dedupe_expiry" } },
   ],
   payouts: [
     // #293: monthly-statements.mjs scans all payouts in a date window across
@@ -218,15 +238,23 @@ export const REQUIRED_INDEXES = {
   ],
   // #638: sandboxed preview descriptors, keyed by the original file's content
   // hash. A separate trust domain from the file itself and from `materials`.
+  // #969: review quarantined import rows for one batch, in file order.
+  import_quarantine: [
+    { keys: { importBatchId: 1, row: 1 }, options: { name: "import_quarantine_batch_idx", background: true } },
+  ],
   material_previews: [
     { keys: { contentHash: 1 }, options: { unique: true, name: "material_previews_content_hash_idx", background: true } },
     { keys: { state: 1, updatedAt: 1 }, options: { name: "material_previews_state_idx", background: true } },
   ],
-  // #794: one notification per (recipient, dedupeKey), so a retried event
-  // can't notify twice even when two workers race.
-  notifications: [
-    { keys: { recipient: 1, dedupeKey: 1 }, options: { unique: true, name: "notifications_dedupe_idx" } },
-    { keys: { recipient: 1, read: 1, createdAt: -1 }, options: { name: "notifications_inbox_idx" } },
+  support_sessions: [
+    // Lookup is by hash of the bearer token, never the raw token.
+    { keys: { tokenHash: 1 }, options: { unique: true, name: "support_sessions_token_hash_idx" } },
+    // "Does this user have an active support session?" (user-facing notices).
+    { keys: { targetUserId: 1, status: 1, expiresAt: 1 }, options: { name: "support_sessions_target_idx" } },
+    // "Which sessions did this maintainer start?" (admin listing / forensics).
+    { keys: { actorId: 1, createdAt: -1 }, options: { name: "support_sessions_actor_idx" } },
+    // Scheduled expiry sweep (scripts/expire-support-sessions.mjs).
+    { keys: { status: 1, expiresAt: 1 }, options: { name: "support_sessions_expiry_idx" } },
   ],
 };
 
