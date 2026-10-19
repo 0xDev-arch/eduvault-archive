@@ -16,6 +16,10 @@ Canonical serialization and strict input normalization rules for signed,
 hashed, compared, or settled payloads are defined in
 [`docs/canonical-serialization.md`](canonical-serialization.md).
 
+Deterministic conflict resolution, 3-way merge rules, and multi-client concurrency
+invariants are documented in
+[`docs/deterministic-conflict-resolution.md`](deterministic-conflict-resolution.md).
+
 ## Collections
 
 ### `users`
