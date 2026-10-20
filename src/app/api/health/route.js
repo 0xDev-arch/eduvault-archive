@@ -8,6 +8,123 @@ import {
   sanitizeDiagnostics,
 } from "@/lib/health/dependencyChecker";
 
+const CRITICAL_DEPENDENCIES = ["database"];
+const OPTIONAL_DEPENDENCIES = ["email", "pinata"];
+const CHAIN_DEPENDENCIES = ["stellar"];
+
+function assessHealthStatus(services, criticalDeps) {
+  const failed = Object.entries(services)
+    .filter(([_, status]) => status !== "online")
+    .map(([service]) => service);
+
+  const criticalFailed = failed.filter((dep) =>
+    criticalDeps.includes(dep)
+  );
+
+  if (criticalFailed.length > 0) {
+    return {
+      status: "unhealthy",
+      statusCode: 503,
+      failureReason: `Critical dependencies failed: ${criticalFailed.join(", ")}`,
+    };
+  }
+
+  if (failed.length > 0) {
+    return {
+      status: "degraded",
+      statusCode: 200,
+      failureReason: `Some optional dependencies unavailable: ${failed.join(", ")}`,
+    };
+  }
+
+  return {
+    status: "healthy",
+    statusCode: 200,
+    failureReason: null,
+  };
+}
+
+async function checkDatabaseHealth(db) {
+  try {
+    await db.command({ ping: 1 });
+    return { status: "online", latencyMs: 0 };
+  } catch (err) {
+    return {
+      status: "offline",
+      error: sanitizeErrorMessage(err),
+    };
+  }
+}
+
+async function checkPinataHealth() {
+  try {
+    if (!process.env.PINATA_JWT) {
+      return {
+        status: "offline",
+        error: "PINATA_JWT not configured",
+      };
+    }
+    const start = Date.now();
+    await pinata.testAuthentication();
+    return { status: "online", latencyMs: Date.now() - start };
+  } catch (err) {
+    return {
+      status: "offline",
+      error: sanitizeErrorMessage(err),
+    };
+  }
+}
+
+async function checkEmailHealth() {
+  try {
+    const start = Date.now();
+    await verifyEmailConnection();
+    return { status: "online", latencyMs: Date.now() - start };
+  } catch (err) {
+    return {
+      status: "offline",
+      error: sanitizeErrorMessage(err),
+    };
+  }
+}
+
+async function checkStellarHealth() {
+  try {
+    const horizonStart = Date.now();
+    const horizonServer = new Server(HORIZON_URL);
+    await horizonServer.root();
+    const horizonLatency = Date.now() - horizonStart;
+
+    const rpcStart = Date.now();
+    const rpcServer = new rpc.Server(STELLAR_RPC_URL);
+    const health = await rpcServer.getHealth();
+    const rpcLatency = Date.now() - rpcStart;
+
+    if (health && health.status === "healthy") {
+      return {
+        status: "online",
+        horizon: { status: "online", latencyMs: horizonLatency },
+        rpc: { status: "online", latencyMs: rpcLatency },
+      };
+    } else {
+      return {
+        status: "degraded",
+        rpc: {
+          status: "degraded",
+          error: `RPC status: ${health?.status || "unknown"}`,
+          latencyMs: rpcLatency,
+        },
+        horizon: { status: "online", latencyMs: horizonLatency },
+      };
+    }
+  } catch (err) {
+    return {
+      status: "offline",
+      error: sanitizeErrorMessage(err),
+    };
+  }
+}
+
 export async function GET(request) {
   return withApiHardening(
     request,
