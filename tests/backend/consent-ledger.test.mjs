@@ -1,0 +1,26 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { consentHistory, POLICIES, recordConsent, requireConsent } from '../../src/lib/backend/consentLedger.js';
+import { digest } from '../../src/lib/backend/trustRecords.js';
+import { fakeDb } from '../fixtures/trustDb.mjs';
+test('missing, first, revoked and renewed consent; immutable version and private history', async () => {
+  const db = fakeDb(), user = { sub: 'student' };
+  const gate = () => requireConsent({ db, user, flow: 'material.manage' });
+  const args = { db, user, policyKey: 'catalog-management:1', versionHash: digest(POLICIES['catalog-management:1']) };
+  assert.equal((await gate()).allowed, false);
+  await recordConsent({ ...args, decision: 'accepted' });
+  assert.equal((await gate()).allowed, true);
+  await recordConsent({ ...args, decision: 'revoked' });
+  assert.equal((await gate()).allowed, false);
+  await recordConsent({ ...args, decision: 'accepted' });
+  assert.equal((await gate()).allowed, true);
+  assert.equal((await consentHistory(args)).length, 3);
+  assert.deepEqual(await consentHistory({ ...args, user: { sub: 'other' } }), []);
+  await assert.rejects(recordConsent({ ...args, versionHash: 'modified', decision: 'accepted' }));
+  await assert.rejects(recordConsent({ ...args, policyKey: 'catalog-management:2', decision: 'accepted' }));
+  await assert.rejects(recordConsent({ ...args, policyKey: '__proto__', versionHash: digest({}), decision: 'accepted' }));
+  db.collection('consent_ledgers').rows[0].versionHash = 'old-policy';
+  assert.equal((await gate()).allowed, false);
+  db.collection('consent_policy_versions').rows[0].versionHash = 'different-published-content';
+  await assert.rejects(recordConsent({ ...args, user: { sub: 'new-student' }, decision: 'accepted' }), /POLICY_CONTENT_CHANGED/);
+});
