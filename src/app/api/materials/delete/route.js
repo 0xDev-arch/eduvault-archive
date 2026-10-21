@@ -13,6 +13,7 @@ import { restoreMaterial, softDeleteMaterial } from '@/lib/db/softDelete'
 import { enqueueMaterialSearchProjection } from '@/lib/backend/materialSearchProjection'
 import { invalidateCatalogCache } from '@/lib/cache/redis'
 import { appendCriticalMutation } from '@/lib/backend/auditLedger'
+import { requireFraudReview } from '@/lib/backend/fraudReview'
 
 /**
  * POST /api/materials/delete
@@ -93,6 +94,11 @@ export async function POST(request) {
             },
           ],
         }
+
+    const material = await db.collection('materials').findOne(filter)
+    if (!material) return NextResponse.json({ error: 'Material not found.' }, { status: 404 })
+    const review = await requireFraudReview({ db, user: admin || actingUser, material, action })
+    if (!review.allowed) return NextResponse.json(review, { status: 409 })
 
     const result =
       action === 'delete'
