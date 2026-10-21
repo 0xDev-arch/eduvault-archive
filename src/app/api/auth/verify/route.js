@@ -59,7 +59,7 @@ export async function POST(request) {
           });
           return errorResponse({
             status: 400,
-            detail: normalized.reason,
+            detail: "The signed wallet request could not be validated.",
             instance: "/api/auth/verify",
           });
         }
@@ -84,12 +84,12 @@ export async function POST(request) {
           });
           return errorResponse({
             status: 401,
-            detail: result.reason,
+            detail: "The wallet signature could not be verified.",
             instance: "/api/auth/verify",
           });
         }
 
-        cleanuqExpiredChallenges().catch(() => {});
+        cleanupExpiredChallenges().catch(() => {});
 
         const db = await getDb();
         const users = db.collection("users");
@@ -101,6 +101,12 @@ export async function POST(request) {
         }
 
         const userId = user?._id?.toString() ?? canonical.address;
+        const currentSessionVersion = Number(user?.sessionVersion || rawUser?.sessionVersion || 1);
+
+        const refreshToken = generateRefreshToken();
+        const sessionContext = result.sessionContext;
+        const { sessionFamilyId } = await storeRefreshToken(userId, refreshToken, sessionContext);
+
         const tokenPayload = {
           sub: userId,
           email: user?.email ?? "",
@@ -109,10 +115,10 @@ export async function POST(request) {
           action: result.sessionContext.action,
         };
 
-        const accessToken = generateAccessToken(tokenPayload);
-        const refreshToken = generateRefreshToken();
-        const sessionContext = result.sessionContext;
-        await storeRefreshToken(userId, refreshToken, sessionContext);
+        const accessToken = generateAccessToken(tokenPayload, {
+          sessionVersion: currentSessionVersion,
+          sessionFamilyId,
+        });
 
         const isProduction = process.env.NODE_ENV === "production";
         const response = NextResponse.json({

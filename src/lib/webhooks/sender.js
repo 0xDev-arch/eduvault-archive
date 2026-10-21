@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { getDb } from '@/lib/mongodb';
 import { logger } from '@/lib/logger';
+import { ensureCorrelationId } from '@/lib/monitoring/telemetry';
 import { validateWebhookDestination, safeFetch, SsrfError } from './ssrfGuard';
 
 const replayCache = new Map();
@@ -172,7 +173,7 @@ export async function sendWebhookWithRetry(url, payload, retries = 3, { signingS
     await validateWebhookDestination(url);
   } catch (error) {
     if (error instanceof SsrfError) {
-      logger.error(`Webhook destination rejected by SSRF policy (${error.code}): ${url}`);
+      logger.error({ code: error.code, url }, 'Webhook destination rejected by SSRF policy');
       return false;
     }
     throw error;
@@ -181,29 +182,31 @@ export async function sendWebhookWithRetry(url, payload, retries = 3, { signingS
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const signature = createWebhookSignatureHeader(body, signingSecret);
+      const correlationId = ensureCorrelationId();
 
       const response = await safeFetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'User-Agent': 'EduVault-Webhook-Sender/1.0',
+          'X-Correlation-Id': correlationId,
           ...(signature ? { 'X-EduVault-Signature': signature } : {}),
         },
         body,
       });
 
       if (response.ok) {
-        logger.info(`Webhook sent successfully to ${url}`);
+        logger.info({ url }, 'Webhook sent successfully');
         return true;
       } else {
-        logger.warn(`Webhook failed (Attempt ${attempt}/${retries}): ${response.status} ${response.statusText}`);
+        logger.warn({ attempt, retries, status: response.status, statusText: response.statusText }, 'Webhook failed');
       }
     } catch (error) {
       if (error instanceof SsrfError) {
-        logger.error(`Webhook blocked by SSRF policy (${error.code}) for ${url}`);
+        logger.error({ code: error.code, url }, 'Webhook blocked by SSRF policy');
         return false;
       }
-      logger.error(`Webhook error (Attempt ${attempt}/${retries}) for ${url}: ${error.message}`);
+      logger.error({ attempt, retries, url, err: error }, 'Webhook error');
     }
 
     if (attempt < retries) {
@@ -213,7 +216,7 @@ export async function sendWebhookWithRetry(url, payload, retries = 3, { signingS
     }
   }
 
-  logger.error(`Webhook failed permanently after ${retries} attempts for ${url}`);
+  logger.error({ retries, url }, 'Webhook failed permanently');
   return false;
 }
 
@@ -278,6 +281,6 @@ export async function broadcastPurchaseEvent(materialId, purchaseData) {
     });
 
   } catch (error) {
-    logger.error(`Failed to enqueue purchase webhook for material ${materialId}: ${error.message}`);
+    logger.error({ materialId, err: error }, 'Failed to enqueue purchase webhook');
   }
 }

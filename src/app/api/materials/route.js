@@ -12,6 +12,16 @@ import { enqueueMaterialSearchProjection } from "@/lib/backend/materialSearchPro
 import { evaluateAndQueueListing } from "@/lib/backend/manipulationScoring";
 import { invalidateCatalogCache } from "@/lib/cache/redis";
 import { appendCriticalMutation } from "@/lib/backend/auditLedger";
+import { effectiveVersion, updateWithExpectedVersion, VERSIONED_WRITE } from "@/lib/backend/versionedWrite";
+import {
+  readRecord,
+  writeRecord,
+  negotiateSchemaVersion,
+  schemaResponseHeaders,
+  UnsupportedSchemaVersionError,
+} from "@/lib/backend/schemaCompat";
+import { buildDerivedProvenance, recordProvenanceRevision } from "@/lib/backend/provenance";
+import { sanitizeMaterialPublic } from "@/lib/storage/protectedStorage";
 
 export const runtime = "nodejs";
 
@@ -29,10 +39,13 @@ async function findDerivedSource(db, derivedFrom = {}) {
   return null;
 }
 
+// #946: delegate to the shared public projector rather than re-deriving
+// this collection's own blocklist, which had drifted out of sync with
+// protectedStorage.js and was still omitting wrappedKey/wrapIv/wrapAuthTag/
+// authTag/iv — the envelope-encryption fields for protected materials.
 function sanitizeMaterial(doc) {
   if (!doc) return doc;
-  const { storageKey, fileUrl, metadataUrl, ...safe } = doc;
-  return safe;
+  return sanitizeMaterialPublic(doc);
 }
 
 export async function POST(request) {
@@ -81,14 +94,22 @@ export async function POST(request) {
           });
         }
 
-        const doc = {
-          userAddress,
-          ...material,
-          ...(provenance ? { provenance } : {}),
-          version: 1,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
+        // #946: stamp the schema version a new listing is written at — without
+        // this, every new document silently falls back to v1 on read, and
+        // never carries the v2 fields (pricingTier, sorobanEntitlementConfig,
+        // rightsMetadata) the catalog migration is supposed to backfill.
+        const doc = writeRecord(
+          "materials",
+          {
+            userAddress,
+            ...material,
+            ...(provenance ? { provenance } : {}),
+            version: 1,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          { version: negotiation.version }
+        );
 
         const result = await db.collection("materials").insertOne(doc);
         const assessment = await evaluateAndQueueListing(db, { _id: result.insertedId, ...doc });
@@ -209,7 +230,11 @@ export async function PUT(request) {
         }
 
         const now = new Date();
-        const nextVersion = (existing.version || 1) + 1;
+        // The write is a compare-and-set against the version the change is based
+        // on: the client's expectedVersion/If-Match when given, otherwise the
+        // version just read. Either way a stale or racing writer gets a 409.
+        const currentVersion = expectedVersion ?? effectiveVersion(existing);
+        const nextVersion = currentVersion + 1;
         // Preserve the immutable origin and append a revision, so an edit can
         // never rewrite where the record came from.
         const provenance = existing.provenance
@@ -226,24 +251,20 @@ export async function PUT(request) {
           ...(provenance ? { provenance } : {}),
           updatedAt: now,
           updatedBy: userAddress,
-          version: nextVersion,
-          searchVersion: nextVersion,
         };
 
-        const result = await db.collection("materials").findOneAndUpdate(
-          filter,
-          { $set: updateDoc },
-          { returnDocument: "after" }
-        );
+        const write = await updateWithExpectedVersion(db.collection("materials"), {
+          id: new ObjectId(materialId),
+          baseVersion: currentVersion,
+          set: updateDoc,
+          extraSet: (version) => ({ searchVersion: version }),
+        });
 
-        const updatedMaterial = result?.value || result;
+        if (write.status === VERSIONED_WRITE.NOT_FOUND) {
+          return NextResponse.json({ error: "Material not found" }, { status: 404 });
+        }
 
-        if (!updatedMaterial) {
-          // Concurrently updated by another writer between findOne and findOneAndUpdate
-          const fresh = await db.collection("materials").findOne({ _id: new ObjectId(materialId) });
-          if (!fresh) {
-            return NextResponse.json({ error: "Material not found" }, { status: 404 });
-          }
+        if (write.status === VERSIONED_WRITE.CONFLICT) {
           auditLog({
             event: "material_update_conflict",
             route: "materials",
@@ -251,20 +272,22 @@ export async function PUT(request) {
             status: 409,
             actor: user.sub,
             materialId,
-            currentVersion: fresh.version || 1,
+            currentVersion: write.currentVersion,
             expectedVersion: currentVersion,
           });
           return NextResponse.json(
             {
               error: "Conflict: This listing has been modified by another session. Please reload to see the latest changes.",
               code: "CONCURRENCY_CONFLICT",
-              currentVersion: fresh.version || 1,
+              currentVersion: write.currentVersion,
               expectedVersion: currentVersion,
               conflictFields: Object.keys(updates),
             },
             { status: 409 }
           );
         }
+
+        const updatedMaterial = write.doc;
 
         const assessment = await evaluateAndQueueListing(db, updatedMaterial, { now });
         if (assessment.flagged) updatedMaterial.moderationStatus = "pending_review";

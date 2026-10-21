@@ -26,6 +26,7 @@ import { createEntitlement } from "@/lib/entitlement";
 import { broadcastPurchaseEvent } from "@/lib/webhooks/sender";
 import { sendReceiptIfEligible } from "@/lib/email";
 import { reconcilePendingPurchases } from "@/lib/purchases/paymentReconciler";
+import { auditCrossBoundaryTrustSecrets } from "@/lib/env";
 
 /**
  * Authorize the caller. If STELLAR_WEBHOOK_SECRET (or CRON_SECRET) is set, the
@@ -48,6 +49,15 @@ async function handle(req) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Cross-boundary trust finding (issue #939): this route fails open when no
+  // secret is configured. That's an accepted local/dev convenience, but a
+  // production deployment that forgot to set one gets no other signal that
+  // this endpoint is unauthenticated -- log it loudly every time the open
+  // door is actually used, rather than only documenting it.
+  for (const warning of auditCrossBoundaryTrustSecrets()) {
+    logger.warn(warning);
+  }
+
   try {
     const db = await getDb();
 
@@ -60,7 +70,7 @@ async function handle(req) {
       onConfirmed: async (purchase) => {
         // Reuse the synchronous path's side-effects: email receipt + creator webhook.
         sendReceiptIfEligible(db, purchase._id).catch((err) =>
-          logger.error(`Receipt send failed for purchase ${purchase._id}: ${err.message}`)
+          logger.error({ purchaseId: String(purchase._id), err }, "Receipt send failed")
         );
         broadcastPurchaseEvent(purchase.materialId, {
           buyerAddress: purchase.buyerAddress,
@@ -71,10 +81,10 @@ async function handle(req) {
       },
     });
 
-    logger.info(`Stellar payment reconciliation run complete: ${JSON.stringify(summary)}`);
+    logger.info({ summary }, "Stellar payment reconciliation run complete");
     return NextResponse.json({ ok: true, ...summary });
   } catch (err) {
-    logger.error(`Stellar payment reconciliation failed: ${err.message}`);
+    logger.error({ err }, "Stellar payment reconciliation failed");
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
