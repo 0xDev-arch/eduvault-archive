@@ -72,9 +72,11 @@ export const COLLECTIONS = {
 };
 
 export const REQUIRED_INDEXES = {
-  fraud_reviews: [
-    { keys: { bindingHash: 1, state: 1 }, options: { name: 'fraud_reviews_binding_state_idx' } },
-    { keys: { state: 1, createdAt: 1, _id: 1 }, options: { name: 'fraud_reviews_queue_idx' } },
+  actor_quotas: [
+    { keys: { actorId: 1, resource: 1 }, options: { unique: true, name: 'actor_quotas_scope_unique_idx' } },
+  ],
+  actor_quota_usage: [
+    { keys: { actorId: 1, resource: 1 }, options: { unique: true, name: 'actor_quota_usage_scope_unique_idx' } },
   ],
   users: [
     { keys: { email: 1 }, options: { unique: true } },
