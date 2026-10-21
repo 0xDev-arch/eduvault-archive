@@ -14,6 +14,7 @@ import { enqueueMaterialSearchProjection } from '@/lib/backend/materialSearchPro
 import { invalidateCatalogCache } from '@/lib/cache/redis'
 import { appendCriticalMutation } from '@/lib/backend/auditLedger'
 import { requireFraudReview } from '@/lib/backend/fraudReview'
+import { requireConsent } from '@/lib/backend/consentLedger'
 
 /**
  * POST /api/materials/delete
@@ -97,6 +98,8 @@ export async function POST(request) {
 
     const material = await db.collection('materials').findOne(filter)
     if (!material) return NextResponse.json({ error: 'Material not found.' }, { status: 404 })
+    const consent = await requireConsent({ db, user: admin || actingUser, flow: 'material.manage' })
+    if (!consent.allowed) return NextResponse.json(consent, { status: 428 })
     const review = await requireFraudReview({ db, user: admin || actingUser, material, action })
     if (!review.allowed) return NextResponse.json(review, { status: 409 })
 
