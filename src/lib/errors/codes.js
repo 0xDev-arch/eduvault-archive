@@ -316,6 +316,13 @@ export const ERROR_CODES = {
       "Subscription-based entitlements auto-expire; repurchase triggers a fresh grant.",
     ],
   },
+  SETTLEMENT_QUOTE_EXPIRED: {
+    code: "SETTLEMENT_QUOTE_EXPIRED",
+    status: 409,
+    retryable: false,
+    userMessage: "The checkout quote has expired.",
+    recovery: "Refresh the listing to obtain a current quote before paying.",
+  },
 
   // =========================================================================
   // Settlement / payment (402 / 502 / 503 / 504)
@@ -421,6 +428,13 @@ export const ERROR_CODES = {
       "Check whether the content was unpinned from Pinata or the Blob was deleted.",
       "For purchased content, open a support case — data retention policy requires content to remain available.",
     ],
+  },
+  STORAGE_UNAVAILABLE: {
+    code: "STORAGE_UNAVAILABLE",
+    status: 503,
+    retryable: true,
+    userMessage: "The content delivery service is temporarily unavailable.",
+    recovery: "Wait briefly and retry the download. Do not share or reuse an expired capability URL.",
   },
   STORAGE_QUARANTINED: {
     code: "STORAGE_QUARANTINED",
@@ -613,7 +627,7 @@ export const ERROR_CODES = {
  * Never throws — safe to call with arbitrary untrusted strings.
  */
 export function getErrorCode(code) {
-  return ERROR_CODES[code] || ERROR_CODES.INTERNAL;
+  return Object.hasOwn(ERROR_CODES, code) ? ERROR_CODES[code] : ERROR_CODES.INTERNAL;
 }
 
 /**
