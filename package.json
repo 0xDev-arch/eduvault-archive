@@ -38,8 +38,7 @@
     "monitor:journey:dry": "node scripts/journey-monitor.mjs --dry-run",
     "verify:restore": "node scripts/verify-restore.mjs",
     "support:expire": "node scripts/expire-support-sessions.mjs",
-    "config:contract": "node scripts/check-config-contract.mjs",
-    "config:drift": "node scripts/config-drift.mjs"
+    "health:check": "node scripts/check-dependency-health.mjs"
   },
   "dependencies": {
     "@creit-tech/stellar-wallets-kit": "npm:@jsr/creit-tech__stellar-wallets-kit@^2.1.0",

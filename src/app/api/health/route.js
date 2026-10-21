@@ -1,13 +1,12 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/mongodb";
-import { pinata } from "@/lib/pinata";
-import { verifyEmailConnection } from "@/lib/email";
 import { withApiHardening } from "@/lib/api/hardening";
-import { Server, rpc } from "@stellar/stellar-sdk";
-import { HORIZON_URL, STELLAR_RPC_URL } from "@/lib/config/chain";
-import { sanitizeErrorMessage } from "@/lib/status/publicStatusModel";
+import {
+  checkAllDependencies,
+  DEPENDENCY_STATUS,
+  sanitizeDiagnostics,
+} from "@/lib/health/dependencyChecker";
 
 const CRITICAL_DEPENDENCIES = ["database"];
 const OPTIONAL_DEPENDENCIES = ["email", "pinata"];
@@ -131,63 +130,59 @@ export async function GET(request) {
     request,
     { route: "health-check", rateLimit: { limit: 60, windowMs: 60_000 } },
     async () => {
-      try {
-        const startTime = Date.now();
-        const db = await getDb();
+      const { searchParams } = new URL(request.url);
+      const includeDiagnostics = searchParams.get("diagnostics") === "true";
 
-        const [databaseStatus, pinataStatus, emailStatus, stellarStatus] =
-          await Promise.all([
-            checkDatabaseHealth(db),
-            checkPinataHealth(),
-            checkEmailHealth(),
-            checkStellarHealth(),
-          ]);
+      const report = await checkAllDependencies();
 
-        const services = {
-          database: databaseStatus.status,
-          pinata: pinataStatus.status,
-          email: emailStatus.status,
-          stellar: stellarStatus.status,
-        };
+      // Maintain backward-compatible services mapping for existing consumers
+      const legacyServices = {
+        database:
+          report.dependencies.database.status === DEPENDENCY_STATUS.HEALTHY
+            ? "online"
+            : `offline: ${report.dependencies.database.message}`,
+        pinata:
+          report.dependencies.storage.status === DEPENDENCY_STATUS.HEALTHY
+            ? "online"
+            : `offline: ${report.dependencies.storage.message}`,
+        email:
+          report.dependencies.email.status === DEPENDENCY_STATUS.HEALTHY
+            ? "online"
+            : `offline: ${report.dependencies.email.message}`,
+        stellar:
+          report.dependencies.stellar.status === DEPENDENCY_STATUS.HEALTHY
+            ? "online"
+            : `offline: ${report.dependencies.stellar.message}`,
+      };
 
-        const { status, statusCode, failureReason } = assessHealthStatus(
-          services,
-          CRITICAL_DEPENDENCIES
-        );
+      const isHealthy = report.status === DEPENDENCY_STATUS.HEALTHY;
+      const isDegraded = report.status === DEPENDENCY_STATUS.DEGRADED;
+      const statusCode = isHealthy || isDegraded ? 200 : 503;
 
-        const responseTime = Date.now() - startTime;
+      const payload = {
+        status: report.status,
+        timestamp: report.timestamp,
+        services: legacyServices,
+        dependencies: report.dependencies,
+        remediations: report.remediations,
+        summary: report.summary,
+      };
 
-        return NextResponse.json(
-          {
-            status,
-            timestamp: new Date().toISOString(),
-            responseTimeMs: responseTime,
-            dependencies: {
-              critical: CRITICAL_DEPENDENCIES,
-              optional: OPTIONAL_DEPENDENCIES,
-              chain: CHAIN_DEPENDENCIES,
-              status: {
-                database: databaseStatus,
-                pinata: pinataStatus,
-                email: emailStatus,
-                stellar: stellarStatus,
-              },
-            },
-            failureReason,
-          },
-          { status: statusCode }
-        );
-      } catch (err) {
-        return NextResponse.json(
-          {
-            status: "unhealthy",
-            timestamp: new Date().toISOString(),
-            error: "Failed to assess system health",
-            failureReason: "Internal health check error",
-          },
-          { status: 503 }
-        );
+      if (includeDiagnostics) {
+        payload.diagnostics = sanitizeDiagnostics({
+          environment: process.env.NODE_ENV || "development",
+          stellarNetwork: process.env.NEXT_PUBLIC_STELLAR_NETWORK || "TESTNET",
+          gatewayConfigured: Boolean(process.env.NEXT_PUBLIC_GATEWAY_URL),
+          emailConfigured: Boolean(process.env.SMTP_HOST || process.env.EMAIL_USER),
+          contractsConfigured: Boolean(
+            process.env.NEXT_PUBLIC_MATERIAL_REGISTRY_CONTRACT_ID ||
+            process.env.NEXT_PUBLIC_PURCHASE_MANAGER_CONTRACT_ID ||
+            process.env.NEXT_PUBLIC_SOROBAN_CONTRACT_ID
+          ),
+        });
       }
+
+      return NextResponse.json(payload, { status: statusCode });
     }
   );
 }
