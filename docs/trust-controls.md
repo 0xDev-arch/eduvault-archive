@@ -41,3 +41,25 @@ the supplied catalog policy wording before production deployment. There is no
 backfill or grandfathering. The new `consent_ledgers` collection uses Mongo's
 unique `_id`; histories are embedded and should be monitored against Mongo's
 document size limit. Validate with `node --test tests/backend/consent-ledger.test.mjs`.
+
+## Support timelines
+
+`POST /api/support/cases` with `{summary}` creates a case owned by the active caller.
+With `{id, type, content, visibility}` it appends an event. Types are status, note,
+evidence, escalation and resolution; visibility is user (default) or private.
+Only admins may add private events or types other than note. Evidence should be
+redacted references; never paste tokens, raw student records or storage credentials.
+`GET /api/support/cases?id=...` allows only the owner or an active admin. Owner
+responses omit private events and their hashes/sequence numbers. Resolved cases
+reject further writes. Status is a narrative update; escalation and resolution
+set lifecycle state explicitly.
+
+`support_cases` embeds a SHA-256 chain with actor, time and strictly increasing
+sequence. Each append atomically compares revision and head, stores the new event
+and updates state. Concurrent appends return 409 for retry. Reads and appends
+verify integrity and fail closed on corruption. This detects accidental edits,
+reordering and truncation against the stored head; a database administrator able
+to rewrite the whole chain can forge it. External head anchoring is deferred.
+No migration/configuration is needed; enforce application-only writes, backups
+and monitor document growth. Validate with
+`node --test tests/backend/support-timeline.test.mjs`.
