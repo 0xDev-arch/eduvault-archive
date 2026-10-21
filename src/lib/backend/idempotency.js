@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { AppError } from "@/lib/errors/AppError.js";
+import { AppError } from "../errors/AppError.js";
 
 export const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
 export const IDEMPOTENCY_KEY_FIELD = "idempotencyKey";
@@ -51,8 +51,10 @@ export function extractIdempotencyKey(request) {
   return null;
 }
 
+export const IDEMPOTENCY_KEYS_COLLECTION = "idempotency_keys";
+
 function idempotencyCollection(db) {
-  return db.collection("idempotency_keys");
+  return db.collection(IDEMPOTENCY_KEYS_COLLECTION);
 }
 
 const DEFAULT_LOCK_MS = 2 * 60 * 1000; // how long an in-flight claim blocks duplicates

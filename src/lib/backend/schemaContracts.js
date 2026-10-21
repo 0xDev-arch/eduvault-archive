@@ -2,8 +2,16 @@ import {
   ADMIN_AUDIT_COLLECTION,
   ADMIN_AUDIT_INDEXES,
 } from "../db/schemas/auditLog.js";
+import { SENSITIVE_ACCESS_COLLECTION } from "../security/sensitiveAccessLog.js";
+import { DOWNLOAD_ACCESS_LOG_COLLECTION } from "../downloads/accessLog.js";
+import { IDEMPOTENCY_KEYS_COLLECTION } from "./idempotency.js";
 
 export const COLLECTIONS = {
+  fraudReviews: 'fraud_reviews',
+  consentLedgers: 'consent_ledgers',
+  consentPolicyVersions: 'consent_policy_versions',
+  supportCases: 'support_cases',
+  stepUpVerifications: 'step_up_verifications',
   users: "users",
   materials: "materials",
   purchases: "purchases",
@@ -47,9 +55,27 @@ export const COLLECTIONS = {
   // #1001: Tamper-evident administrative configuration change audit evidence
   configAuditEvidence: "config_audit_evidence",
   systemConfig: "system_config",
+  // Operational metadata collections covered by the data minimization review
+  // and retention enforcement (#954). Field names only here — see
+  // src/lib/privacy/dataMinimizationReview.js for the allowed-field registry.
+  sensitiveAccessLog: SENSITIVE_ACCESS_COLLECTION,
+  downloadAccessLog: DOWNLOAD_ACCESS_LOG_COLLECTION,
+  idempotencyKeys: IDEMPOTENCY_KEYS_COLLECTION,
+  // #953: signed approval receipts for high-impact maintainer actions. See
+  // src/lib/approvals/maintainerApprovalFlow.js.
+  maintainerApprovalIntents: "maintainer_approval_intents",
+  maintainerApprovalReceipts: "maintainer_approval_receipts",
+  // #880: verified external identity links and their single-use challenges.
+  // See src/lib/auth/identityLinks.js.
+  identityLinks: "identity_links",
+  identityLinkChallenges: "identity_link_challenges",
 };
 
 export const REQUIRED_INDEXES = {
+  fraud_reviews: [
+    { keys: { bindingHash: 1, state: 1 }, options: { name: 'fraud_reviews_binding_state_idx' } },
+    { keys: { state: 1, createdAt: 1, _id: 1 }, options: { name: 'fraud_reviews_queue_idx' } },
+  ],
   users: [
     { keys: { email: 1 }, options: { unique: true } },
     { keys: { walletAddressLower: 1 }, options: { sparse: true } },
@@ -208,6 +234,8 @@ export const REQUIRED_INDEXES = {
     { keys: { status: 1, updatedAt: 1 } },
     { keys: { txHash: 1 }, options: { sparse: true } },
     { keys: { idempotencyKey: 1 }, options: { unique: true, sparse: true } },
+    // #882: resolves a user's refunds for their operation history.
+    { keys: { buyerAddress: 1 }, options: { name: "refunds_buyer_idx" } },
   ],
   refund_audit_log: [
     { keys: { refundId: 1, createdAt: 1 } },
@@ -218,6 +246,8 @@ export const REQUIRED_INDEXES = {
     { keys: { operationId: 1 }, options: { unique: true } },
     { keys: { action: 1, createdAt: -1 } },
     { keys: { "target.type": 1, "target.id": 1, sequence: 1 } },
+    // #882: per-user operation history (actor branch), newest-first by sequence.
+    { keys: { actor: 1, sequence: -1 }, options: { name: "audit_ledger_actor_sequence_idx" } },
   ],
   audit_checkpoints: [
     { keys: { sequence: 1 }, options: { unique: true } },
@@ -270,6 +300,46 @@ export const REQUIRED_INDEXES = {
     { keys: { actorId: 1, createdAt: -1 }, options: { name: "support_sessions_actor_idx" } },
     // Scheduled expiry sweep (scripts/expire-support-sessions.mjs).
     { keys: { status: 1, expiresAt: 1 }, options: { name: "support_sessions_expiry_idx" } },
+  ],
+  // #954: previously undeclared despite docs/sensitive-field-access-logging.md
+  // documenting these as the expected shape.
+  [SENSITIVE_ACCESS_COLLECTION]: [
+    { keys: { correlationId: 1 }, options: { unique: true, name: "sensitive_access_correlation_idx" } },
+    { keys: { actorId: 1, at: 1 }, options: { name: "sensitive_access_actor_idx" } },
+    { keys: { resourceType: 1, resourceId: 1, at: 1 }, options: { name: "sensitive_access_resource_idx" } },
+    { keys: { decision: 1, at: 1 }, options: { name: "sensitive_access_decision_idx" } },
+  ],
+  [DOWNLOAD_ACCESS_LOG_COLLECTION]: [
+    { keys: { materialId: 1, timestamp: -1 }, options: { name: "download_access_log_material_idx" } },
+    { keys: { buyerAddress: 1, timestamp: -1 }, options: { name: "download_access_log_buyer_idx" } },
+    { keys: { capabilityId: 1 }, options: { sparse: true, name: "download_access_log_capability_idx" } },
+  ],
+  [IDEMPOTENCY_KEYS_COLLECTION]: [
+    { keys: { expiresAt: 1 }, options: { expireAfterSeconds: 0, name: "idempotency_keys_expiry_idx" } },
+  ],
+  maintainer_approval_intents: [
+    { keys: { intentId: 1 }, options: { unique: true, name: "maintainer_approval_intent_lookup_idx" } },
+    { keys: { actor: 1, createdAt: -1 }, options: { name: "maintainer_approval_intent_actor_idx" } },
+  ],
+  maintainer_approval_receipts: [
+    { keys: { receiptId: 1 }, options: { unique: true, name: "maintainer_approval_receipt_id_idx" } },
+    // One decided receipt per intent — a decision, once signed, is final.
+    { keys: { intentId: 1 }, options: { unique: true, name: "maintainer_approval_intent_idx" } },
+    { keys: { approverAddress: 1, signedAt: -1 }, options: { name: "maintainer_approval_approver_idx" } },
+  ],
+  identity_links: [
+    { keys: { linkId: 1 }, options: { unique: true, name: "identity_links_id_idx" } },
+    // An identity is linked to at most one account at a time; unlinked rows
+    // stay as history and free the slot for relinking.
+    {
+      keys: { provider: 1, subjectKey: 1 },
+      options: { unique: true, partialFilterExpression: { status: "linked" }, name: "identity_links_active_subject_idx" },
+    },
+    { keys: { userId: 1, status: 1, linkedAt: -1 }, options: { name: "identity_links_user_idx" } },
+  ],
+  identity_link_challenges: [
+    { keys: { challengeId: 1 }, options: { unique: true, name: "identity_link_challenges_id_idx" } },
+    { keys: { expiresAt: 1 }, options: { expireAfterSeconds: 0, name: "identity_link_challenges_expiry_idx" } },
   ],
 };
 
