@@ -17,7 +17,9 @@ Pass `?id=...` to GET to read a resolved review and its complete audit history.
 The endpoint limits requests to 60/minute.
 
 No backfill is required. Mongo creates `fraud_reviews` on first use; its built-in
-unique `_id` deduplicates identical requests. Grant application-only writes and
+unique `_id` deduplicates identical requests. The normal database startup creates
+binding/state and chronological pending-queue indexes through `REQUIRED_INDEXES`.
+Grant application-only writes and
 restrict database operator access. Embedded audit arrays are intended for bounded
 review histories, not an external immutable archive.
 
@@ -41,6 +43,10 @@ the supplied catalog policy wording before production deployment. There is no
 backfill or grandfathering. The new `consent_ledgers` collection uses Mongo's
 unique `_id`; histories are embedded and should be monitored against Mongo's
 document size limit. Validate with `node --test tests/backend/consent-ledger.test.mjs`.
+`consent_policy_versions` pins each published version's content hash globally on
+first acceptance; reusing that version with different content fails closed even
+for a new user. Restrict this collection to insert/read access for the application.
+Consent and support endpoints each limit requests to 30/minute.
 
 ## Support timelines
 
@@ -63,3 +69,31 @@ to rewrite the whole chain can forge it. External head anchoring is deferred.
 No migration/configuration is needed; enforce application-only writes, backups
 and monitor document growth. Validate with
 `node --test tests/backend/support-timeline.test.mjs`.
+
+## Adaptive step-up verification
+
+Catalog management checks persisted `users.stepUpRequired`, security review flags,
+asset fraud holds and quarantined restores. Low risk proceeds without a challenge.
+After consent and fraud approval, high risk returns 428 with a safe explanation,
+retry URL and exact action binding. POST `{binding}` to `/api/verification/step-up`.
+Sign the returned message's UTF-8 bytes with the account's linked Stellar Ed25519
+wallet; POST `{id, signature}` (base64 detached signature) to the same endpoint.
+Wallet clients must support signing these exact raw bytes. Other wallet formats
+are rejected explicitly. The endpoint limits requests to 10/minute.
+
+Retry the original material request with `verificationId`. Grants expire after
+five minutes, bind actor/target/action/search version/deletion state, and are
+atomically consumed once. Failed or expired challenges require a fresh challenge;
+they cannot be reset. A failed downstream mutation also requires fresh proof.
+The server computes the execution binding independently of the supplied binding.
+Mongo creates `step_up_verifications` automatically. Retain decision records per
+the deployment's security retention policy; expiry is checked at use rather than
+relying on background deletion. No environment variable or migration is required.
+Validate all controls without dependencies:
+`node --test tests/backend/fraud-review.test.mjs tests/backend/consent-ledger.test.mjs tests/backend/support-timeline.test.mjs tests/backend/step-up-verification.test.mjs`.
+
+Additional concurrency and lifecycle snapshot checks (the latter uses the normal
+installed application dependencies):
+`node --test tests/backend/trust-concurrency.test.mjs tests/backend/trust-material-snapshot.test.mjs`.
+Route and real linked-wallet signature checks:
+`npx vitest run --config test/trust-vitest.config.mjs`.

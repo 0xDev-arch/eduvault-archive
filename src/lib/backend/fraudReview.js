@@ -19,11 +19,13 @@ export async function requireFraudReview({ db, user, material, action }) {
   const bindingHash = digest(binding);
   const rejected = await collection.findOne({ bindingHash, state: 'rejected' });
   if (rejected) return { allowed: false, reviewId: rejected._id, state: 'rejected' };
+  const pending = await collection.findOne({ bindingHash, state: 'pending' });
+  if (pending) return { allowed: false, reviewId: pending._id, state: 'pending' };
   const review = await collection.findOne({ _id: id });
   if (review?.state === 'approved') return { allowed: true, reviewId: id };
   if (review) return { allowed: false, reviewId: id, state: review.state };
   if (!reasons.length) return { allowed: true };
-  const record = await insertOnce(collection, { _id: id, binding, bindingHash, reasons, state: 'pending',
+  const record = await insertOnce(collection, { _id: id, binding, bindingHash, reasons, state: 'pending', createdAt: new Date().toISOString(),
     evidence: { materialStatus: String(material.status || 'unknown'), signals: reasons },
     history: [{ state: 'pending', actor: binding.actor, at: new Date().toISOString() }] });
   return { allowed: record.state === 'approved', reviewId: id, state: record.state };

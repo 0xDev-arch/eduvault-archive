@@ -15,6 +15,8 @@ import { invalidateCatalogCache } from '@/lib/cache/redis'
 import { appendCriticalMutation } from '@/lib/backend/auditLedger'
 import { requireFraudReview } from '@/lib/backend/fraudReview'
 import { requireConsent } from '@/lib/backend/consentLedger'
+import { actionBinding } from '@/lib/backend/fraudReview'
+import { requireStepUp } from '@/lib/backend/stepUpVerification'
 
 /**
  * POST /api/materials/delete
@@ -102,11 +104,20 @@ export async function POST(request) {
     if (!consent.allowed) return NextResponse.json(consent, { status: 428 })
     const review = await requireFraudReview({ db, user: admin || actingUser, material, action })
     if (!review.allowed) return NextResponse.json(review, { status: 409 })
+    const verification = await requireStepUp({ db, user: admin || actingUser, material, action,
+      verificationId: body.verificationId })
+    if (!verification.allowed) return NextResponse.json({ ...verification,
+      binding: actionBinding(admin || actingUser, material, action) }, { status: 428 })
 
+    // Bind the lifecycle write to the same snapshot used by the trust gates.
+    // Mongo null equality deliberately also matches absent legacy fields.
+    const expectedFields = Object.fromEntries([
+      'searchVersion', 'isDeleted', 'status', 'fraudHold', 'userAddress', 'creatorId',
+    ].map(key => [key, material[key] ?? null]))
     const result =
       action === 'delete'
-        ? await softDeleteMaterial({ db, filter, deletedBy: actorId, reason })
-        : await restoreMaterial({ db, filter })
+        ? await softDeleteMaterial({ db, filter, deletedBy: actorId, reason, expectedFields })
+        : await restoreMaterial({ db, filter, expectedFields })
 
     if (!result.ok) {
       const status = result.reason === 'not_found' ? 404 : 409

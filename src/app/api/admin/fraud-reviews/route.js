@@ -15,7 +15,8 @@ async function handle(request, resolve) {
     const id = new URL(request.url).searchParams.get('id');
     const result = resolve ? await resolveFraudReview({ ...(await request.json()), db, user: auth.user })
       : id ? await db.collection('fraud_reviews').findOne({ _id: id })
-        : await db.collection('fraud_reviews').find({ state: 'pending' }).limit(100).toArray();
+        : await db.collection('fraud_reviews').find({ state: 'pending' })
+          .sort({ createdAt: 1, _id: 1 }).limit(100).toArray();
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof TrustError ? error.code : 'REVIEW_UNAVAILABLE' },

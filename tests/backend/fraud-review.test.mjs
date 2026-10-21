@@ -11,6 +11,7 @@ test('normal action proceeds; suspicious action queues with private allowlisted 
   const args = { db, user: flagged, material, action: 'delete' };
   const queued = await requireFraudReview(args);
   assert.equal(queued.allowed, false);
+  assert.equal((await requireFraudReview({ ...args, user })).allowed, false);
   assert.deepEqual(await requireFraudReview(args), queued);
   assert.equal(db.collection('fraud_reviews').rows.length, 1);
   assert.ok(!JSON.stringify(db.collection('fraud_reviews').rows).includes('never store'));

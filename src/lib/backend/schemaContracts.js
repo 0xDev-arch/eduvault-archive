@@ -7,6 +7,11 @@ import { DOWNLOAD_ACCESS_LOG_COLLECTION } from "../downloads/accessLog.js";
 import { IDEMPOTENCY_KEYS_COLLECTION } from "./idempotency.js";
 
 export const COLLECTIONS = {
+  fraudReviews: 'fraud_reviews',
+  consentLedgers: 'consent_ledgers',
+  consentPolicyVersions: 'consent_policy_versions',
+  supportCases: 'support_cases',
+  stepUpVerifications: 'step_up_verifications',
   users: "users",
   materials: "materials",
   purchases: "purchases",
@@ -64,6 +69,10 @@ export const COLLECTIONS = {
 };
 
 export const REQUIRED_INDEXES = {
+  fraud_reviews: [
+    { keys: { bindingHash: 1, state: 1 }, options: { name: 'fraud_reviews_binding_state_idx' } },
+    { keys: { state: 1, createdAt: 1, _id: 1 }, options: { name: 'fraud_reviews_queue_idx' } },
+  ],
   users: [
     { keys: { email: 1 }, options: { unique: true } },
     { keys: { walletAddressLower: 1 }, options: { sparse: true } },
