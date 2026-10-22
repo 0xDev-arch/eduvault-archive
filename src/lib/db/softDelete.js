@@ -86,6 +86,7 @@ export async function softDeleteMaterial({
   filter,
   deletedBy,
   reason,
+  expectedFields,
   now = new Date(),
 }) {
   const materials = db.collection("materials");
@@ -99,7 +100,7 @@ export async function softDeleteMaterial({
       db,
       existing._id,
       MaterialLifecycleState.RETIRED,
-      { actor: deletedBy, reason }
+      { actor: deletedBy, reason, expectedFields }
     );
     return { ok: true, material: existing, updatedMaterial };
   } catch (err) {
@@ -108,7 +109,7 @@ export async function softDeleteMaterial({
 }
 
 /** Restore a previously retired listing. */
-export async function restoreMaterial({ db, filter, now = new Date() }) {
+export async function restoreMaterial({ db, filter, expectedFields, now = new Date() }) {
   const materials = db.collection("materials");
   const existing = await materials.findOne(filter);
 
@@ -120,7 +121,7 @@ export async function restoreMaterial({ db, filter, now = new Date() }) {
       db,
       existing._id,
       MaterialLifecycleState.ACTIVE,
-      {}
+      { expectedFields }
     );
     return { ok: true, material: existing, updatedMaterial };
   } catch (err) {

@@ -12,6 +12,7 @@ import { buildImportProvenance, recordProvenanceRevision, TRANSFORM_VERSIONS } f
 import { sanitizeString } from "@/lib/api/validation";
 import { invalidateCatalogCache } from "@/lib/cache/redis";
 import { notify } from "@/lib/notifications/notifications";
+import { assertActorQuota, consumeActorQuota, UserQuotaError } from "@/lib/quotaManager";
 
 export const runtime = "nodejs";
 
@@ -126,6 +127,20 @@ export async function POST(request) {
           });
         }
 
+        // Dry runs return above without consuming resources. A committed import
+        // reserves compute and indexing capacity for each create/update row.
+        try {
+          await assertActorQuota(db, userAddress, "compute", writeRows.length);
+          await assertActorQuota(db, userAddress, "indexing", writeRows.length);
+          await consumeActorQuota(db, userAddress, "compute", writeRows.length);
+          await consumeActorQuota(db, userAddress, "indexing", writeRows.length);
+        } catch (quotaError) {
+          if (!(quotaError instanceof UserQuotaError)) throw quotaError;
+          return NextResponse.json({ error: quotaError.message, resource: quotaError.resource }, { status: 429 });
+        }
+
+        const now = new Date();
+        const importBatchId = randomUUID();
         const quarantineCol = db.collection("quarantine");
 
         // A stable human-readable label for the import source, so a maintainer
@@ -321,6 +336,9 @@ export async function POST(request) {
           },
         }, { status: !partial ? 201 : created + updated > 0 ? 207 : 500 });
       } catch (err) {
+        if (err instanceof UserQuotaError) {
+          return NextResponse.json({ error: err.message, resource: err.resource }, { status: 429 });
+        }
         if (err instanceof ImportValidationError) {
           return NextResponse.json({ error: err.message, details: err.details }, { status: 400 });
         }

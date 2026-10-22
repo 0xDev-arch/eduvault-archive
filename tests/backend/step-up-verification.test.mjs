@@ -1,0 +1,31 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { actionBinding } from '../../src/lib/backend/fraudReview.js';
+import { requireStepUp, startStepUp, verifyStepUp, STEP_UP_TTL_MS } from '../../src/lib/backend/stepUpVerification.js';
+import { fakeDb } from '../fixtures/trustDb.mjs';
+const material = { _id: 'asset', searchVersion: 1 };
+const user = { sub: 'student', walletAddress: 'Glinked', stepUpRequired: true };
+test('low risk proceeds, high risk blocks, failed proof retries and consumes once', async () => {
+  const db = fakeDb(), args = { db, user, material, action: 'delete', now: 1000 };
+  assert.equal((await requireStepUp({ ...args, user: { ...user, stepUpRequired: false } })).allowed, true);
+  assert.equal((await requireStepUp(args)).allowed, false);
+  const begin = () => startStepUp({ db, user, binding: actionBinding(user, material, 'delete'), now: 1000 });
+  const first = await begin();
+  assert.equal((await verifyStepUp({ db, user, id: first.id, signature: 'bad', verifySignature: () => false, now: 1001 })).state, 'failed');
+  const retry = await begin();
+  const proof = { db, user, id: retry.id, signature: 'valid', now: 1001, verifySignature: () => true };
+  assert.equal((await verifyStepUp(proof)).state, 'verified');
+  await assert.rejects(verifyStepUp(proof));
+  assert.equal((await requireStepUp({ ...args, verificationId: retry.id, material: { ...material, searchVersion: 2 } })).allowed, false);
+  assert.equal((await requireStepUp({ ...args, verificationId: retry.id, user: { ...user, sub: 'other' } })).allowed, false);
+  assert.equal((await requireStepUp({ ...args, verificationId: retry.id })).allowed, true);
+  assert.equal((await requireStepUp({ ...args, verificationId: retry.id })).allowed, false);
+});
+test('expired proofs and expired grants block execution', async () => {
+  const db = fakeDb(), binding = actionBinding(user, material, 'delete');
+  const grant = await startStepUp({ db, user, binding, now: 0 });
+  assert.equal((await verifyStepUp({ db, user, id: grant.id, now: STEP_UP_TTL_MS, verifySignature: () => true })).state, 'expired');
+  const next = await startStepUp({ db, user, binding, now: 0 });
+  await verifyStepUp({ db, user, id: next.id, signature: 'valid', now: 1, verifySignature: () => true });
+  assert.equal((await requireStepUp({ db, user, material, action: 'delete', verificationId: next.id, now: STEP_UP_TTL_MS })).allowed, false);
+});

@@ -75,9 +75,9 @@ export function isValidTransition(currentState, nextState) {
   return VALID_TRANSITIONS[from].includes(nextState);
 }
 
-export async function transitionMaterialState(db, materialId, nextState, { actor, reason, eventDetails = {} } = {}) {
+export async function transitionMaterialState(db, materialId, nextState, { actor, reason, eventDetails = {}, expectedFields = {} } = {}) {
   const materials = db.collection('materials');
-  const material = await materials.findOne({ _id: materialId });
+  const material = await materials.findOne({ _id: materialId, ...expectedFields });
   if (!material) {
     throw lifecycleError('Material not found', LIFECYCLE_ERROR_CODES.NOT_FOUND);
   }
@@ -142,7 +142,7 @@ export async function transitionMaterialState(db, materialId, nextState, { actor
           ]
         }
       : { lifecycleState: currentState };
-  const writeResult = await materials.updateOne({ _id: materialId, ...stateGuard }, { $set: patch });
+  const writeResult = await materials.updateOne({ _id: materialId, ...stateGuard, ...expectedFields }, { $set: patch });
   if (writeResult && writeResult.matchedCount === 0) {
     throw lifecycleError(
       `Material ${String(materialId)} changed state while transitioning ${currentState} to ${nextState}`,

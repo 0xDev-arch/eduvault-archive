@@ -1,0 +1,32 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { requireFraudReview, resolveFraudReview } from '../../src/lib/backend/fraudReview.js';
+import { fakeDb } from '../fixtures/trustDb.mjs';
+const user = { sub: 'student' };
+const material = { _id: 'asset', searchVersion: 1 };
+test('normal action proceeds; suspicious action queues with private allowlisted evidence', async () => {
+  const db = fakeDb();
+  assert.equal((await requireFraudReview({ db, user, material, action: 'delete' })).allowed, true);
+  const flagged = { ...user, securityReviewRequired: true, secret: 'never store' };
+  const args = { db, user: flagged, material, action: 'delete' };
+  const queued = await requireFraudReview(args);
+  assert.equal(queued.allowed, false);
+  assert.equal((await requireFraudReview({ ...args, user })).allowed, false);
+  assert.deepEqual(await requireFraudReview(args), queued);
+  assert.equal(db.collection('fraud_reviews').rows.length, 1);
+  assert.ok(!JSON.stringify(db.collection('fraud_reviews').rows).includes('never store'));
+  await assert.rejects(resolveFraudReview({ db, user, id: queued.reviewId, decision: 'approved', reason: 'checked' }));
+  await resolveFraudReview({ db, user: { sub: 'maintainer', role: 'admin' }, id: queued.reviewId, decision: 'approved', reason: 'checked' });
+  assert.equal((await requireFraudReview(args)).allowed, true);
+  await assert.rejects(resolveFraudReview({ db, user: { sub: 'maintainer', role: 'admin' }, id: queued.reviewId, decision: 'rejected', reason: 'again' }));
+  assert.equal((await requireFraudReview({ ...args, material: { ...material, searchVersion: 2 } })).allowed, false);
+});
+test('rejected review blocks retries with an atomic audit event', async () => {
+  const db = fakeDb();
+  const args = { db, user: { ...user, securityReviewRequired: true }, material, action: 'delete' };
+  const queued = await requireFraudReview(args);
+  await resolveFraudReview({ db, user: { sub: 'admin', role: 'admin' }, id: queued.reviewId, decision: 'rejected', reason: 'fraud confirmed' });
+  assert.equal((await requireFraudReview(args)).state, 'rejected');
+  assert.equal((await requireFraudReview({ ...args, user })).state, 'rejected');
+  assert.equal(db.collection('fraud_reviews').rows[0].history.length, 2);
+});

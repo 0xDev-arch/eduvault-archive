@@ -176,7 +176,28 @@ npm run lint
 npm test
 npm run test:backend
 npm run scan:secrets
+npm run config:contract
+npm run config:drift -- --baseline production --target staging
 ```
+
+Run focused checks before opening a pull request, and add broader checks when you touch shared API, storage, or workflow code.
+
+## Configuration Drift Detection
+
+Detect configuration drift between environments before deployment:
+
+```bash
+# Compare staging vs production
+npm run config:drift -- --baseline production --target staging
+
+# Compare local development vs production
+npm run config:drift -- --baseline production --target development
+
+# Compare .env files directly
+npm run config:drift -- --baseline .env.production --target .env.staging --file
+```
+
+See [Cross-Environment Configuration Drift Detector](drift-detector.md) for full documentation.
 
 Run focused checks before opening a pull request, and add broader checks when you touch shared API, storage, or workflow code.
 

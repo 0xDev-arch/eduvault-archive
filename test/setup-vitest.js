@@ -62,10 +62,14 @@ vi.mock('@/lib/webhooks/sender', () => ({
 }));
 
 // Mock analytics events
-vi.mock('@/lib/backend/analyticsEvents', () => ({
-    buildAnalyticsEvent: vi.fn(() => ({ eventType: 'purchase' })),
-    recordServerAnalyticsEvent: vi.fn(async () => {}),
-}));
+vi.mock('@/lib/backend/analyticsEvents', async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+        ...actual,
+        buildAnalyticsEvent: vi.fn((params) => ({ ...actual.buildAnalyticsEvent(params), eventType: params.eventType || 'purchase' })),
+        recordServerAnalyticsEvent: vi.fn(async () => {}),
+    };
+});
 
 // Mock audit ledger
 vi.mock('@/lib/backend/auditLedger', () => ({
