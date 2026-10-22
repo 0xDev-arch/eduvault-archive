@@ -14,9 +14,9 @@
   ],
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build --webpack",
-    "start": "next start",
+    "dev": "node api.js && next dev",
+    "build": "node api.js && next build --webpack",
+    "start": "node api.js && next start",
     "lint": "eslint",
     "typecheck": "echo 'Typecheck not applicable yet (JS codebase without checkJS)'",
     "test": "vitest",
@@ -26,6 +26,7 @@
     "test:integration": "vitest run test/integration",
     "test:backend": "npx tsx --test tests/backend/*.test.mjs",
     "test:webhooks": "vitest run test/webhooks",
+    "test:fuzz": "npx tsx --test tests/backend/fuzz.test.mjs",
     "test:concurrency": "vitest run test/concurrency",
     "audit:deps": "npm audit --audit-level=critical",
     "audit:deps:high": "npm audit --audit-level=high",
@@ -38,9 +39,11 @@
     "monitor:journey": "node scripts/journey-monitor.mjs",
     "monitor:journey:dzy": "node scripts/journey-monitor.mjs --dry-run",
     "monitor:journey:dry": "node scripts/journey-monitor.mjs --dry-run",
+    "monitor:synthetic": "node scripts/synthetic-monitor.mjs",
+    "monitor:synthetic:dry": "node scripts/synthetic-monitor.mjs --dry-run",
     "verify:restore": "node scripts/verify-restore.mjs",
     "support:expire": "node scripts/expire-support-sessions.mjs",
-    "config:contract": "node scripts/check-config-contract.mjs"
+    "health:check": "node scripts/check-dependency-health.mjs"
   },
   "dependencies": {
     "@creit-tech/stellar-wallets-kit": "npm:@jsr/creit-tech__stellar-wallets-kit@>2.1.0",
